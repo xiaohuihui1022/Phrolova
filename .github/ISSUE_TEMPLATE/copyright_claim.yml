@@ -1,0 +1,63 @@
+name: ©️ 素材版权投诉
+description: 针对 public/media 下美术素材的版权或署名问题
+title: "[Copyright] "
+labels: ["copyright"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本项目「鸣潮」相关角色、声骸、属性等名称与美术素材的版权归库洛游戏所有，
+        本项目仅供学习与非盈利娱乐使用。`public/media/` 下的头像图来自公开社区整理。
+
+        若你是原作者或不希望某素材被使用，请填写以下信息，我们会在核实后移除或补充署名。
+
+  - type: input
+    id: asset_path
+    attributes:
+      label: 素材路径
+      description: 受影响素材在仓库中的相对路径（可多行）。
+      placeholder: 例如：public/media/characters/角色 今汐 头像.png
+    validations:
+      required: true
+
+  - type: dropdown
+    id: asset_type
+    attributes:
+      label: 素材类型
+      options:
+        - 角色头像
+        - 声骸头像
+        - 属性图标
+        - 武器图标
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: identity
+    attributes:
+      label: 你的身份
+      description: 你是原作者本人、授权代表，还是其他相关方？请简要说明。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: action
+    attributes:
+      label: 期望处理方式
+      options:
+        - 移除该素材
+        - 补充作者署名
+        - 其他（请在下方补充说明）
+    validations:
+      required: true
+
+  - type: textarea
+    id: proof
+    attributes:
+      label: 权属证明 / 说明
+      description: |
+        请提供可证明权属的材料或说明（原作品发布链接、主页、授权文件等）。
+        如为非商业投诉也请说明诉求，我们会尊重并配合处理。
+    validations:
+      required: true

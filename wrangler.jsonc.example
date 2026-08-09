@@ -1,0 +1,41 @@
+{
+  "name": "phrolova",
+  "compatibility_date": "2026-08-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": "dist",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "phrolova-db",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "drizzle",
+      "migrations_table": "drizzle_migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID",
+      "preview_id": "REPLACE_WITH_YOUR_KV_PREVIEW_ID"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROOM",
+        "class_name": "RoomObject",
+        "script_name": "phrolova-multiplayer"
+      },
+      {
+        "name": "MATCHMAKER",
+        "class_name": "MatchmakerObject",
+        "script_name": "phrolova-multiplayer"
+      }
+    ]
+  },
+  "vars": {
+    "ADMIN_USER": "admin",
+    "SESSION_TTL": "7200",
+    "CAPTCHA_TTL": "180"
+  }
+}

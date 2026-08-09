@@ -1,0 +1,97 @@
+name: 🐛 Bug 报告
+description: 报告游戏中出现的问题（功能异常、报错、连接失败等）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你抽时间反馈问题！请尽量详细地填写以下信息，以便我们快速定位与修复。
+        如果是数据错误（角色/声骸属性填错），请改用「数据勘误」模板。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题简述
+      description: 一句话概括你遇到的问题。
+      placeholder: 例如：多人对战创建房间后对手无法加入。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 你做了哪些操作后触发了该问题？请按步骤编号填写。
+      placeholder: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 输入 ...
+        4. 出现 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你认为正常情况下应该发生什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么？（报错信息、异常表现等）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 涉及的游戏模式
+      description: 问题出现在哪个模式？（可多选）
+      multiple: true
+      options:
+        - 单人 · 共鸣者
+        - 单人 · 声骸（简单）
+        - 单人 · 声骸（困难）
+        - 多人 · 创建房间
+        - 多人 · 加入房间
+        - 多人 · 随机匹配
+        - 登录 / 注册 / 账号
+        - 排行榜
+        - 数据图鉴
+        - 后台管理
+        - 其他 / 与模式无关
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 浏览器与设备
+      description: 浏览器名称及版本、操作系统、是否移动端等。
+      placeholder: 例如：Chrome 131 / Windows 11 / 桌面端
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 控制台 / 网络日志
+      description: |
+        如有报错，请粘贴浏览器控制台（F12 → Console / Network）的错误信息。
+        多人连接问题请附上 Network 中失败的 WebSocket 请求状态码。
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图
+      description: 可选。将截图拖拽到此处即可上传。
+    validations:
+      required: false

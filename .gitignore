@@ -1,25 +1,7 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-.idea/
-*.py[cod]
-*$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
-Python
-build/
-dist/
-*.egg-info/
-*.egg
-
 # Virtual environments
 env/
 venv/
 ENV/
-venv/
-env/
 
 # Unit test / coverage reports
 htmlcov/
@@ -29,20 +11,9 @@ cache
 nosetests.xml
 coverage.xml
 
-# Jupyter Notebook
-ipynb_checkpoints/
-
-# Django/Flask-specific files
-*.log
-local_settings.py
-db.sqlite3
-
 # IDE-specific settings (optional)
 idea/
 vscode/
-
-# PyInstaller files
-*.spec
 
 # Miscellaneous
 *.mo
@@ -51,8 +22,23 @@ vscode/
 .DS_Store
 node_modules/
 .pnpm-store/
-apps/client/dist/
-apps/client/.vite/
+.vvite/
+.wrangler/
+.drizzle/
+dist/
+wrangler.jsonc
+!wrangler.jsonc.example
+!cf-server/wrangler.jsonc.example
+wrangler.local.toml
+wrangler.dev.toml
 apps/server/.venv/
 .pytest_cache/
 *.pyc
+*.sqlite
+*.sqlite3
+.turbo/
+.cache/
+drizzle/_journal.json.bak
+worker-configuration.local.d.ts
+.dev.vars
+wrangler.*.toml

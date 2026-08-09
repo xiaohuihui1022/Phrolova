@@ -1,0 +1,13 @@
+# Issue 模板配置
+# 关闭「空白 Issue」入口，强制使用模板；并提供常用跳转链接
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 讨论与问答
+    url: https://github.com/MoonCC233/Phrolova/discussions
+    about: 想法交流、玩法讨论、使用问答请前往 Discussions
+  - name: 📖 游戏规则文档
+    url: https://github.com/MoonCC233/Phrolova/blob/main/docs/游戏规则.md
+    about: 完整玩法、颜色反馈、积分结算规则
+  - name: 📋 变更日志
+    url: https://github.com/MoonCC233/Phrolova/blob/main/docs/CHANGELOG.md
+    about: 查看版本更新历史

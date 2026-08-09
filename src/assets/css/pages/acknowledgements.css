@@ -1,0 +1,66 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   AcknowledgementsPage — 致谢名单页面
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ack-page { display: flex; flex-direction: column; align-items: center; min-height: 100vh; width: 100%; padding: 1.5rem 1.5rem 3rem; }
+.ack-top { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: 720px; margin-bottom: 1rem; }
+.ack-header-center { text-align: center; flex: 1; }
+.ack-title { margin: 0; font-size: 1.5rem; font-weight: 900; letter-spacing: 0.08em; }
+.ack-sub { margin: 0.2rem 0 0; color: var(--text-faint); font-size: 0.78rem; letter-spacing: 0.08em; }
+.ack-header-right { min-width: 120px; }
+
+.ack-main { width: 100%; max-width: 640px; flex: 1; display: flex; flex-direction: column; gap: 1.2rem; margin-top: 0.5rem; }
+
+.ack-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--surface-panel-strong), var(--surface-panel));
+  overflow: hidden;
+}
+
+.ack-loading { margin: 0; padding: 3rem 1rem; text-align: center; color: var(--text-faint); font-size: 0.9rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+
+/* ── Category header ── */
+.ack-cat-header { display: flex; align-items: center; gap: 0.6rem; padding: 0.9rem 1.1rem; border-bottom: 1px solid var(--line-soft); background: color-mix(in oklab, var(--text-main) 2%, transparent); }
+.ack-cat-icon { font-size: 1.2rem; }
+.ack-cat-title { margin: 0; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.04em; flex: 1; }
+.ack-cat-count { font-size: 0.75rem; font-weight: 700; color: var(--text-faint); padding: 0.15rem 0.55rem; border-radius: 10px; background: var(--surface-panel-strong); border: 1px solid var(--line-soft); }
+
+/* ── List ── */
+.ack-list { list-style: none; margin: 0; padding: 0.3rem 0; }
+.ack-item { display: flex; align-items: center; gap: 0.9rem; padding: 0.8rem 1.1rem; transition: background 0.15s; }
+.ack-item + .ack-item { border-top: 1px solid color-mix(in oklab, var(--line-soft) 40%, transparent); }
+.ack-item:hover { background: color-mix(in oklab, var(--text-main) 3%, transparent); }
+
+.ack-item-avatar {
+  display: grid; place-items: center;
+  width: 2.4rem; height: 2.4rem;
+  border-radius: 50%;
+  font-weight: 900;
+  font-size: 0.95rem;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.ack-item-body { flex: 1; min-width: 0; }
+.ack-item-name { font-weight: 700; font-size: 0.95rem; letter-spacing: 0.04em; }
+.ack-item-desc { margin: 0.15rem 0 0; font-size: 0.78rem; color: var(--text-sub); line-height: 1.5; }
+
+/* ── Footer ── */
+.ack-footer { padding: 1rem 0.5rem 0; }
+.ack-footer-text { margin: 0; text-align: center; color: var(--text-faint); font-size: 0.8rem; display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
+
+@media (max-width: 640px) {
+  .ack-page { padding: 0.8rem 0.6rem 2rem; }
+  .ack-top { gap: 0.5rem; }
+  .ack-title { font-size: 1.2rem; }
+  .ack-header-right { min-width: auto; }
+  .ack-main { max-width: 100%; }
+  .ack-cat-header { padding: 0.75rem 0.9rem; }
+  .ack-item { padding: 0.7rem 0.9rem; gap: 0.7rem; }
+  .ack-item-avatar { width: 2.1rem; height: 2.1rem; font-size: 0.85rem; }
+  .ack-item-name { font-size: 0.85rem; }
+  .ack-item-desc { font-size: 0.75rem; }
+}

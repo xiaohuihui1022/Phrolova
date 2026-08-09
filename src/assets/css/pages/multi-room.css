@@ -1,0 +1,78 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   MultiplayerRoomPage — room game screen
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.mr-glass-chip { padding: 0.28rem 0.6rem; border: 1px solid var(--line-soft); border-radius: 6px; background: color-mix(in oklab, var(--gold) 4%, var(--surface-card)); color: var(--text-sub); font-size: 0.68rem; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 18rem; }
+
+.mr-info-card { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.8rem; border: 1px solid var(--line-soft); border-radius: 8px; background: linear-gradient(180deg, var(--surface-panel-strong), var(--surface-panel)); }
+.mr-info-divider { flex-shrink: 0; width: 1px; align-self: stretch; background: var(--line-soft); }
+.mr-score-panel { flex-shrink: 0; }
+
+.mr-boards { min-height: 0; display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 0.8rem; overflow: hidden; }
+.mr-boards--columns { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; }
+.mr-board-panel { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--surface-panel); overflow: hidden; }
+.mr-board-head { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--line-soft); flex-shrink: 0; }
+.mr-board-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.mr-board-title { margin: 0; font-size: 0.9rem; font-weight: 900; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.35rem; }
+.mr-board-head-icon { font-size: 1rem; color: var(--gold-soft); }
+.mr-board-meta { color: var(--text-faint); font-size: 0.74rem; }
+
+.stage-head-actions { display: flex; align-items: center; gap: 0.5rem; }
+.mr-layout-toggle { display: inline-flex; align-items: center; gap: 0.32rem; padding: 0.3rem 0.55rem; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface-panel); color: var(--text-sub); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; cursor: pointer; transition: border-color 0.2s, color 0.2s, background 0.2s; }
+.mr-layout-toggle:hover { border-color: color-mix(in oklab, var(--gold) 40%, var(--line-soft)); color: var(--gold-soft); background: color-mix(in oklab, var(--gold) 5%, var(--surface-panel)); }
+.mr-layout-toggle .mr-layout-toggle-label { white-space: nowrap; }
+
+.mr-empty-shell { max-width: 480px; margin: 4rem auto 0; }
+
+/* ── Reconnect banner (对手断开重连中) ── */
+.mr-reconnect-banner { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.9rem; border: 1px solid color-mix(in oklab, var(--warning, #f0a020) 35%, var(--line-soft)); border-radius: 8px; background: color-mix(in oklab, var(--warning, #f0a020) 8%, var(--surface-panel)); color: var(--warning, #f0a020); font-size: 0.82rem; font-weight: 600; letter-spacing: 0.03em; }
+.mr-reconnect-icon { font-size: 1.1rem; animation: mrReconnectPulse 1.2s ease-in-out infinite; }
+@keyframes mrReconnectPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ── Result modal ── */
+.mr-result-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1.5rem; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(6px); animation: mrFadeIn 0.25s ease; }
+.mr-result-modal { display: flex; flex-direction: column; width: 100%; max-width: 1100px; max-height: 95vh; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--surface-panel-strong); overflow: hidden; animation: mrSlideUp 0.3s ease; }
+.mr-result-header { display: grid; justify-items: center; gap: 0.4rem; padding: 1.4rem 1.5rem 1rem; background: radial-gradient(ellipse 100% 140% at 50% 0%, color-mix(in oklab, var(--gold) 12%, transparent), transparent); }
+.mr-result-icon { font-size: 2.2rem; color: var(--text-sub); }
+.mr-result-icon--win { color: var(--gold); }
+.mr-result-title { margin: 0; font-size: 1.5rem; font-weight: 900; letter-spacing: 0.06em; }
+.mr-result-title--win { color: var(--gold); }
+.mr-result-score { margin: 0; color: var(--gold); font-size: 1.1rem; font-weight: 700; }
+.mr-result-answer { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; margin-top: 0.6rem; padding: 0.6rem 1.2rem; border: 1px solid var(--line-soft); border-radius: 8px; background: color-mix(in oklab, var(--surface-panel) 60%, transparent); }
+.mr-result-answer-label { color: var(--text-sub); font-size: 0.65rem; letter-spacing: 0.16em; text-transform: uppercase; }
+.mr-result-answer-value { color: var(--gold); font-size: 1.3rem; font-weight: 800; letter-spacing: 0.04em; }
+.mr-result-actions { display: flex; justify-content: center; gap: 0.6rem; padding: 1rem 1.2rem 1.2rem; border-top: 1px solid var(--line-soft); }
+
+@keyframes mrFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mrSlideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Responsive ── */
+@media (max-width: 1040px) {
+  .mr-boards,
+  .mr-boards--columns { grid-template-columns: none; grid-template-rows: repeat(2, minmax(200px, 1fr)); }
+  .mr-layout-toggle { display: none; }
+}
+@media (max-width: 720px) {
+  .mr-glass-chip { display: none; }
+  .mr-info-card { flex-direction: column; align-items: stretch; gap: 0.3rem; padding: 0.3rem 0.5rem; border-left: none; border-right: none; border-radius: 0; }
+  .mr-info-divider { width: 100%; height: 1px; align-self: stretch; }
+  .mr-boards { gap: 0.35rem; }
+  .mr-board-head { padding: 0.3rem 0.45rem; }
+  .mr-board-title { font-size: 0.66rem; }
+  .mr-board-meta { font-size: 0.58rem; }
+}
+
+/* ── Round result popup (BO3/BO5) ── */
+.mr-round-popup { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); cursor: pointer; }
+.mr-round-popup-card { display: grid; justify-items: center; gap: 0.5rem; padding: 2rem 2.5rem; border: 1px solid color-mix(in oklab, var(--gold) 35%, transparent); border-radius: 14px; background: var(--surface-panel-strong); text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+.mr-round-popup-icon { font-size: 2.4rem; color: var(--gold); }
+.mr-round-popup-title { margin: 0; font-size: 1.3rem; font-weight: 900; letter-spacing: 0.06em; color: var(--gold); }
+.mr-round-popup-score { margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main); font-family: 'Rajdhani', sans-serif; }
+.mr-round-popup-hint { margin: 0.2rem 0 0; color: var(--text-faint); font-size: 0.7rem; }
+.mr-round-popup-answer { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; margin-top: 0.3rem; padding: 0.5rem 1rem; border: 1px solid var(--line-soft); border-radius: 8px; background: color-mix(in oklab, var(--surface-panel) 60%, transparent); min-width: 200px; }
+.mr-round-popup-answer-label { color: var(--text-sub); font-size: 0.62rem; letter-spacing: 0.16em; text-transform: uppercase; }
+.mr-round-popup-answer-value { color: var(--gold); font-size: 1.1rem; font-weight: 800; letter-spacing: 0.04em; }
+
+.mr-round-pop-enter-active { animation: mrRoundPopIn 0.25s ease both; }
+.mr-round-pop-leave-active { animation: mrRoundPopIn 0.2s ease reverse both; }
+@keyframes mrRoundPopIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }

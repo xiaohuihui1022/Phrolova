@@ -1,0 +1,67 @@
+name: 📊 数据勘误
+description: 反馈角色 / 声骸属性、词条、版本等信息填错
+title: "[Data] "
+labels: ["data-correction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢帮助核对数据准确性！本模板用于反馈游戏内「角色 / 声骸」属性数据与官方资料的差异。
+        如果是 Bug（功能报错、连接失败），请改用「Bug 报告」模板。
+
+  - type: dropdown
+    id: entry_type
+    attributes:
+      label: 条目类型
+      options:
+        - 共鸣者 / 角色
+        - 声骸
+        - 属性图标
+        - 武器类型
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: entry_name
+    attributes:
+      label: 条目名称
+      description: 角色或声骸的完整名称（与图鉴一致）。
+      placeholder: 例如：今汐 / 哀声鸷
+    validations:
+      required: true
+
+  - type: input
+    id: field
+    attributes:
+      label: 错误的字段
+      description: 哪个属性填错了？
+      placeholder: 例如：实装版本 / COST / 主词条 / 出生地
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: 当前（错误）值
+      description: 游戏中现在显示的内容。
+    validations:
+      required: true
+
+  - type: textarea
+    id: correct
+    attributes:
+      label: 正确值
+      description: 应该是什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: 参考资料
+      description: |
+        可选。请提供可核对的来源（官方公告、游戏内截图、Wiki 链接等）。
+        优先以游戏内实际数据为准。
+    validations:
+      required: false

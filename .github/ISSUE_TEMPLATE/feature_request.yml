@@ -1,0 +1,64 @@
+name: ✨ 功能需求
+description: 提出新功能或对现有玩法的改进建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎提出新想法！请先搜索是否已有类似 Issue，避免重复提交。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决的问题 / 使用场景
+      description: 这个功能是为了解决什么痛点？在什么场景下会用到？
+      placeholder: 例如：希望能在房间里观战朋友的对局。
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的解决方案
+      description: 你希望我们实现什么？请尽量具体描述交互或规则。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+      description: 可选。是否想过其他做法？为什么不满意？
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及模块
+      multiple: true
+      options:
+        - 单人模式
+        - 多人对战
+        - 积分 / 排行榜
+        - 登录 / 账号
+        - 数据图鉴
+        - 后台管理
+        - UI / 交互体验
+        - 基础设施 / 部署
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: 影响范围
+      description: 你认为这个改动的优先级如何？
+      options:
+        - 全体玩家都会受益
+        - 部分玩家（特定模式）受益
+        - 小优化 / 锦上添花
+    validations:
+      required: true

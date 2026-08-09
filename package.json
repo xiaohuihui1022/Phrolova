@@ -1,10 +1,57 @@
 {
-  "name": "phrolova-monorepo",
+  "name": "client",
   "private": true,
-  "packageManager": "pnpm@9.15.0",
+  "type": "module",
   "scripts": {
-    "client:dev": "pnpm --filter client dev",
-    "client:build": "pnpm --filter client build",
-    "client:preview": "pnpm --filter client preview"
-  }
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "dev:cf": "wrangler pages dev dist --port 5174 --persist-to=.wrangler/state",
+    "dev:ws": "cd cf-server && wrangler dev --port 8788 --persist-to=../.wrangler/state",
+    "dev:all": "pnpm build && pnpm dev:cf",
+    "build": "vite build && vite build --config vite.worker.config.ts",
+    "build:app": "vite build",
+    "build:worker": "vite build --config vite.worker.config.ts",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "typecheck:server": "tsc --noEmit -p cf-server/tsconfig.json",
+    "typecheck:all": "pnpm typecheck && pnpm typecheck:server",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "deploy": "pnpm deploy:ws && pnpm build && wrangler pages deploy dist",
+    "deploy:production": "pnpm deploy:ws && pnpm build && wrangler pages deploy dist --branch production",
+    "deploy:preview": "pnpm deploy:ws && pnpm build && wrangler pages deploy dist --branch preview",
+    "deploy:ws": "cd cf-server && wrangler deploy",
+    "d1:create": "wrangler d1 create phrolova-db",
+    "d1:generate": "drizzle-kit generate",
+    "d1:migrate:local": "wrangler d1 migrations apply phrolova-db --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply phrolova-db --remote",
+    "d1:seed:local": "wrangler d1 execute phrolova-db --local --file=./seed/seed.sql",
+    "d1:seed:remote": "wrangler d1 execute phrolova-db --remote --file=./seed/seed.sql",
+    "d1:seed:players:local": "wrangler d1 execute phrolova-db --local --file=./seed/players_seed.sql",
+    "d1:seed:players:remote": "wrangler d1 execute phrolova-db --remote --file=./seed/players_seed.sql",
+    "d1:studio": "drizzle-kit studio",
+    "wrangler:types": "wrangler types",
+    "build:check": "pnpm typecheck:all && pnpm build"
+  },
+  "dependencies": {
+    "@iconify/vue": "^5.0.1",
+    "axios": "^1.19.0",
+    "drizzle-orm": "^0.36.4",
+    "gsap": "^3.15.0",
+    "hash-wasm": "^4.12.0",
+    "hono": "^4.6.14",
+    "pinia": "^2.3.1",
+    "socket.io-client": "^4.8.1",
+    "vue": "^3.5.18",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260122.0",
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vue-tsc": "^2.2.0",
+    "wrangler": "^4.119.0",
+    "ws": "^8.21.2"
+  },
+  "packageManager": "pnpm@11.20.0+sha512.9a6f330a95b66446ea088faf1521405a8a01f07fde7124cc9958dfed52d4bb436737e65b08f85f37b46fcba375092558ac51262b816844b22f63406ed166bfee"
 }

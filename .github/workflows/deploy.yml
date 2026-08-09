@@ -1,0 +1,250 @@
+name: Deploy to Cloudflare (Production)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+# 需要在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置以下 Secrets：
+#   CLOUDFLARE_API_TOKEN  — Cloudflare API Token（需具备 Workers/Pages/D1/KV 编辑权限）
+#   CLOUDFLARE_ACCOUNT_ID — Cloudflare Account ID
+#   D1_DATABASE_ID        — D1 数据库 ID
+#   KV_NAMESPACE_ID       — KV 命名空间 ID
+
+jobs:
+  # ============================================================
+  # Job 1: 类型检查（安全闸门，必须通过才能继续）
+  # ============================================================
+  typecheck:
+    name: TypeScript Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run typecheck (frontend + API)
+        run: pnpm typecheck
+
+      - name: Run typecheck (Durable Objects)
+        run: pnpm typecheck:server
+
+  # ============================================================
+  # Job 2: 构建验证
+  # ============================================================
+  build:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    needs: typecheck
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate wrangler.jsonc files
+        run: |
+          sed \
+            -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
+            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
+            -e "s|REPLACE_WITH_YOUR_KV_PREVIEW_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
+            wrangler.jsonc.example > wrangler.jsonc
+
+          sed \
+            -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
+            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
+            cf-server/wrangler.jsonc.example > cf-server/wrangler.jsonc
+
+      - name: Build frontend + Pages Worker
+        run: pnpm build
+        timeout-minutes: 10
+
+      - name: Verify build artifacts
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ dist/ 目录不存在，构建失败"
+            exit 1
+          fi
+          if [ ! -f "dist/_worker.js" ]; then
+            echo "❌ dist/_worker.js 不存在，Pages Custom Worker 构建失败"
+            exit 1
+          fi
+          echo "✅ 构建产物验证通过"
+          echo "文件数: $(find dist -type f | wc -l)"
+          echo "总大小: $(du -sh dist | cut -f1)"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-build
+          path: dist/
+          retention-days: 30
+
+  # ============================================================
+  # Job 3: D1 数据库迁移（部署前执行，确保数据一致性）
+  # ============================================================
+  migrate-db:
+    name: Apply D1 Database Migrations
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate wrangler.jsonc
+        run: |
+          sed \
+            -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
+            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
+            -e "s|REPLACE_WITH_YOUR_KV_PREVIEW_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
+            wrangler.jsonc.example > wrangler.jsonc
+
+      - name: Apply D1 migrations (remote)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm d1:migrate:remote
+
+  # ============================================================
+  # Job 4: 部署 cf-server (Durable Objects Worker)
+  # ============================================================
+  deploy-cf-server:
+    name: Deploy cf-server (Durable Objects)
+    runs-on: ubuntu-latest
+    needs: migrate-db
+    environment:
+      name: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate cf-server/wrangler.jsonc
+        run: |
+          sed \
+            -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
+            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
+            cf-server/wrangler.jsonc.example > cf-server/wrangler.jsonc
+
+      - name: Deploy Durable Objects Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cf-server
+          command: deploy
+
+  # ============================================================
+  # Job 5: 部署 Cloudflare Pages (生产环境)
+  # ============================================================
+  deploy-pages:
+    name: Deploy Pages (Production)
+    runs-on: ubuntu-latest
+    needs: deploy-cf-server
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: production-build
+          path: dist
+
+      - name: Generate wrangler.jsonc
+        run: |
+          sed \
+            -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
+            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
+            -e "s|REPLACE_WITH_YOUR_KV_PREVIEW_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
+            wrangler.jsonc.example > wrangler.jsonc
+
+      - name: Deploy to Cloudflare Pages (production)
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --branch production
+
+      - name: Deployment Summary
+        run: |
+          echo "## 🎉 生产部署成功" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**部署地址:** ${{ steps.deploy.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 部署阶段 | 状态 |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| TypeScript 类型检查 | ✅ 通过 |" >> $GITHUB_STEP_SUMMARY
+          echo "| 构建验证 | ✅ 通过 |" >> $GITHUB_STEP_SUMMARY
+          echo "| D1 数据库迁移 | ✅ 通过 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Durable Objects (cf-server) | ✅ 已部署 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pages (生产) | ✅ 已部署 |" >> $GITHUB_STEP_SUMMARY
