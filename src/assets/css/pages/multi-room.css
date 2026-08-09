@@ -17,10 +17,8 @@
 .mr-board-head-icon { font-size: 1rem; color: var(--gold-soft); }
 .mr-board-meta { color: var(--text-faint); font-size: 0.74rem; }
 
-.stage-head-actions { display: flex; align-items: center; gap: 0.5rem; }
-.mr-layout-toggle { display: inline-flex; align-items: center; gap: 0.32rem; padding: 0.3rem 0.55rem; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface-panel); color: var(--text-sub); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; cursor: pointer; transition: border-color 0.2s, color 0.2s, background 0.2s; }
-.mr-layout-toggle:hover { border-color: color-mix(in oklab, var(--gold) 40%, var(--line-soft)); color: var(--gold-soft); background: color-mix(in oklab, var(--gold) 5%, var(--surface-panel)); }
-.mr-layout-toggle .mr-layout-toggle-label { white-space: nowrap; }
+.mr-layout-toggle { color: var(--text-sub); }
+.mr-layout-toggle:hover { color: var(--gold-soft); }
 
 .mr-empty-shell { max-width: 480px; margin: 4rem auto 0; }
 

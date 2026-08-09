@@ -5,6 +5,9 @@ import LoreBadge from "@/components/shared/LoreBadge.vue";
 import type { CellStatus, CompareStatus, GuessHistoryRow, QuizType, ResonatorCompare, SkeletonCompare } from "@/types/game";
 import { formatGuessValue, getCharacterAvatar, getColumns, getSkeletonAvatar, getStatusClass, getRowValue, renderGroupItem } from "@/utils/game";
 import { resolveBadgeCategory } from "@/utils/presentation";
+import { useSettings } from "@/composables/useSettings";
+
+const { settings } = useSettings();
 
 const props = defineProps<{
   quizType: QuizType;
@@ -71,7 +74,7 @@ function formatCellValue(row: GuessHistoryRow, key: string) {
 
 <template>
   <div class="guess-table-shell">
-    <table class="guess-table">
+    <table class="guess-table" :class="{ 'guess-table--animated': settings.animations }">
       <thead>
         <tr>
           <th class="guess-table-head">#</th>
@@ -82,7 +85,8 @@ function formatCellValue(row: GuessHistoryRow, key: string) {
         </tr>
       </thead>
       <tbody v-if="rows.length">
-        <tr v-for="(row, index) in rows" :key="`${index}-${row.guess.name}`">
+        <tr v-for="(row, index) in rows" :key="`${index}-${row.guess.name}`"
+          :style="settings.animations ? { '--row-index': index } : undefined">
           <td class="guess-table-index">{{ index + 1 }}</td>
           <td class="guess-table-cell guess-table-avatar-cell">
             <img v-if="isRevealed(row)"

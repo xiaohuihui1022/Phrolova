@@ -111,6 +111,27 @@
 .guess-table-stars { color: color-mix(in oklab, var(--gold) 70%, var(--text-main)); letter-spacing: 0.12em; }
 .compare-token-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 
+/* ── GuessTable 单元格渐入动画（按行 + 按列交错延迟） ── */
+.guess-table--animated tbody tr > td {
+  animation: guessRowSlideIn 0.4s ease both;
+  animation-delay: calc(var(--row-index, 0) * 0.07s);
+}
+.guess-table--animated tbody tr > td:nth-child(1) { animation-delay: calc(var(--row-index, 0) * 0.07s + 0s); }
+.guess-table--animated tbody tr > td:nth-child(2) { animation-delay: calc(var(--row-index, 0) * 0.07s + 0.05s); }
+.guess-table--animated tbody tr > td:nth-child(3) { animation-delay: calc(var(--row-index, 0) * 0.07s + 0.1s); }
+.guess-table--animated tbody tr > td:nth-child(4) { animation-delay: calc(var(--row-index, 0) * 0.07s + 0.15s); }
+.guess-table--animated tbody tr > td:nth-child(5) { animation-delay: calc(var(--row-index, 0) * 0.07s + 0.2s); }
+.guess-table--animated tbody tr > td:nth-child(6) { animation-delay: calc(var(--row-index, 0) * 0.07s + 0.25s); }
+.guess-table--animated tbody tr > td:nth-child(7) { animation-delay: calc(var(--row-index, 0) * 0.07s + 0.3s); }
+.guess-table--animated tbody tr > td:nth-child(8) { animation-delay: calc(var(--row-index, 0) * 0.07s + 0.35s); }
+@keyframes guessRowSlideIn {
+  from { opacity: 0; transform: translateX(-26px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .guess-table--animated tbody tr > td { animation: none; }
+}
+
 /* ── Feedback cells ── */
 .feedback-cell { background-clip: padding-box; overflow: hidden; }
 .feedback-cell-match { background: color-mix(in oklab, var(--color-success) 50%, white); color: var(--text-main); }

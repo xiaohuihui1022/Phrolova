@@ -314,6 +314,14 @@ watch(
         >
           <template #actions>
             <span class="mr-glass-chip">{{ roomHintText }}</span>
+            <button
+              v-if="hasBattleHistory"
+              class="mr-layout-toggle glass-header-btn"
+              :title="boardLayout === 'rows' ? '切换为左右布局' : '切换为上下布局'"
+              @click="toggleBoardLayout"
+            >
+              <Icon :icon="boardLayout === 'rows' ? 'ph:columns-duotone' : 'ph:rows-duotone'" aria-hidden="true" />
+            </button>
             <button class="glass-header-btn glass-header-btn--danger" @click="leaveRoom" title="退出房间">
               <Icon icon="ph:sign-out-duotone" aria-hidden="true" />
             </button>
@@ -354,18 +362,7 @@ watch(
               <h2 class="stage-title">{{ hasBattleHistory ? "双方猜测进度" : stagePromptTitle }}</h2>
               <p class="stage-sub">{{ hasBattleHistory ? stagePromptSubtitle : roomHintText }}</p>
             </div>
-            <div class="stage-head-actions">
-              <FeedbackLegend v-if="hasBattleHistory" />
-              <button
-                v-if="hasBattleHistory"
-                class="mr-layout-toggle"
-                :title="boardLayout === 'rows' ? '切换为左右布局' : '切换为上下布局'"
-                @click="toggleBoardLayout"
-              >
-                <Icon :icon="boardLayout === 'rows' ? 'ph:columns-duotone' : 'ph:rows-duotone'" aria-hidden="true" />
-                <span class="mr-layout-toggle-label">{{ boardLayout === "rows" ? "左右" : "上下" }}</span>
-              </button>
-            </div>
+            <FeedbackLegend v-if="hasBattleHistory" />
           </div>
 
           <div v-if="!hasBattleHistory" class="empty-state">

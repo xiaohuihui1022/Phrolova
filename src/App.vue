@@ -6,6 +6,7 @@ import ModalOverlay from "@/components/shared/ModalOverlay.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMultiGameStore } from "@/stores/multiGame";
 import { useTheme } from "@/composables/useTheme";
+import { useSettings } from "@/composables/useSettings";
 import { useLocalStorage } from "@/composables/useStorage";
 import type { AccentPreset } from "@/types";
 
@@ -16,6 +17,7 @@ const multiGameStore = useMultiGameStore();
 const route = useRoute();
 const router = useRouter();
 const { theme, toggleTheme } = useTheme();
+const { settings, toggleAnimations } = useSettings();
 
 const isHomeRoute = computed(() => route.name === "home");
 const isGameRoute = computed(() => {
@@ -60,6 +62,7 @@ const ACCENTS: AccentPreset[] = [
 
 const accentId = useLocalStorage(ACCENT_KEY, "violet");
 const showAccentPicker = ref(false);
+const showSettingsModal = ref(false);
 
 // Reactive accent color application — runs whenever theme or accentId changes
 const ACCENT_PROPS = ["gold","goldSoft","shellBg","shellBgDeep","surfacePanel","surfacePanelStrong","surfaceCard","textMain","textSub","textFaint"] as const;
@@ -134,6 +137,10 @@ onMounted(async () => {
         <Icon icon="ph:palette-duotone" />
         <span class="theme-accent-dot" :style="{ background: 'var(--gold)' }" />
       </button>
+      <button class="theme-settings-btn" type="button" @click="showSettingsModal = true"
+        aria-label="个人设置">
+        <Icon icon="ph:gear-six-duotone" />
+      </button>
       <Transition name="accent-pop">
         <div v-if="showAccentPicker" class="accent-picker">
           <p class="accent-picker-title">主题色</p>
@@ -153,6 +160,31 @@ onMounted(async () => {
         </div>
       </Transition>
     </div>
+
+    <ModalOverlay v-if="showSettingsModal" panel-class="settings-modal" max-width="400px" @close="showSettingsModal = false">
+      <header class="settings-modal-header">
+        <p class="settings-modal-kicker">Settings</p>
+        <h2 class="settings-modal-title">个人设置</h2>
+      </header>
+      <div class="settings-modal-body">
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">动画效果</span>
+            <span class="settings-row-desc">开启后，猜测记录将从左到右渐入显示</span>
+          </div>
+          <button
+            class="settings-switch"
+            :class="{ 'settings-switch--on': settings.animations }"
+            type="button"
+            role="switch"
+            :aria-checked="settings.animations"
+            @click="toggleAnimations"
+          >
+            <span class="settings-switch-thumb" />
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
   </div>
 </template>
 
