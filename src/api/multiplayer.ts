@@ -12,6 +12,10 @@ export const C2S = {
   SUBMIT_GUESS: "multi:submit_guess",
   LEAVE_ROOM: "multi:leave_room",
   RESTART_ROOM: "multi:restart_room",
+  POOL_STATS_SUBSCRIBE: "multi:pool_stats_subscribe",
+  // 仅"创建房间"路径使用：玩家标记已准备 / 房主手动开始对局
+  PLAYER_READY: "multi:player_ready",
+  START_MATCH: "multi:start_match",
 } as const;
 
 // ── Server → Client event names ──
@@ -31,6 +35,7 @@ export const S2C = {
   ROOM_EXPIRED: "multi:room_expired",
   KICKED: "multi:kicked",
   PONG: "multi:pong",
+  POOL_STATS: "multi:pool_stats",
 } as const;
 
 // ── Client → Server payload types ──

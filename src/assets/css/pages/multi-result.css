@@ -17,6 +17,7 @@
 .mrp-back:hover { background: color-mix(in oklab, var(--gold) 26%, var(--surface-panel-strong)); }
 .mrp-back--ghost { background: transparent; color: var(--text-sub); border-color: var(--line-soft); }
 .mrp-back--ghost:hover { background: var(--surface-panel); color: var(--text-main); }
+.mrp-back-icon { margin-right: 0.35rem; font-size: 1.05em; vertical-align: -0.12em; }
 
 /* ── Body ── */
 .mrp-body { padding: 1.5rem clamp(1rem, 4vw, 3rem) 3rem; max-width: 1200px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 1.2rem; }

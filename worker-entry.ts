@@ -152,7 +152,7 @@ function handleWs(request: Request, env: Bindings, url: URL): Response | Promise
 function routeWs(request: Request, env: Bindings, url: URL): Response | Promise<Response> {
   const pathname = url.pathname;
 
-  if (pathname === '/ws' || pathname === '/ws/' || pathname === '/ws/matchmaker') {
+  if (pathname === '/ws' || pathname === '/ws/' || pathname === '/ws/matchmaker' || pathname === '/ws/pool') {
     const id = env.MATCHMAKER.idFromName('default');
     return env.MATCHMAKER.get(id).fetch(request);
   }
@@ -176,7 +176,7 @@ function routeWs(request: Request, env: Bindings, url: URL): Response | Promise<
 function routeHttp(request: Request, env: Bindings, url: URL): Response | Promise<Response> {
   const pathname = url.pathname;
 
-  if (pathname === '/ws' || pathname === '/ws/' || pathname === '/ws/matchmaker') {
+  if (pathname === '/ws' || pathname === '/ws/' || pathname === '/ws/matchmaker' || pathname === '/ws/pool') {
     return env.MATCHMAKER.get(env.MATCHMAKER.idFromName('default')).fetch(request);
   }
 

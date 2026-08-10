@@ -564,6 +564,18 @@ export const useMultiGameStore = defineStore("multiGame", () => {
     gameWs.send(C2S.RESTART_ROOM, { roomCode: roomState.value.roomCode });
   }
 
+  /** 玩家标记自己已准备（仅"创建房间"路径，非房主玩家调用） */
+  function sendReady(): void {
+    if (!roomState.value || !gameWs) return;
+    gameWs.send(C2S.PLAYER_READY, { roomCode: roomState.value.roomCode });
+  }
+
+  /** 房主手动开始对局（仅"创建房间"路径，房主调用） */
+  function startMatch(): void {
+    if (!roomState.value || !gameWs) return;
+    gameWs.send(C2S.START_MATCH, { roomCode: roomState.value.roomCode });
+  }
+
   function disconnect(): void {
     stopHeartbeat();
     clearLastRoomCode();
@@ -611,6 +623,8 @@ export const useMultiGameStore = defineStore("multiGame", () => {
     submitGuess,
     leaveRoom,
     restartRoom,
+    sendReady,
+    startMatch,
     disconnect,
   };
 });

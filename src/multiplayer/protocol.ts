@@ -24,6 +24,10 @@ export const C2S = {
   RESTART_ROOM: 'multi:restart_room',
   HEARTBEAT: 'multi:heartbeat',
   RESUME_ROOM: 'multi:resume_room',
+  POOL_STATS_SUBSCRIBE: 'multi:pool_stats_subscribe',
+  // 仅"创建房间"路径使用：玩家标记已准备 / 房主手动开始对局
+  PLAYER_READY: 'multi:player_ready',
+  START_MATCH: 'multi:start_match',
 } as const;
 
 // ── 服务端→客户端 事件 ──
@@ -43,6 +47,7 @@ export const S2C = {
   ROOM_EXPIRED: 'multi:room_expired',
   KICKED: 'multi:kicked',
   PONG: 'multi:pong',
+  POOL_STATS: 'multi:pool_stats',
 } as const;
 
 // ── 类型 ──
@@ -54,6 +59,8 @@ export interface RoomPlayer {
   roundWins: number;
   attemptsUsed: number;
   attemptsLimit: number;
+  // 仅"创建房间"路径使用：玩家是否已点击"准备"
+  ready: boolean;
   guesses: Array<{
     revealed: boolean;
     guess: Record<string, unknown>;
@@ -92,6 +99,7 @@ export interface RoomState {
       guesses: Array<{ revealed: boolean; guess: Record<string, unknown>; compare: Record<string, unknown> }>;
     }>;
   }>;
+  isRandomMatch: boolean;
 }
 
 // ── 消息工具 ──

@@ -39,6 +39,8 @@ export class MatchmakerObject extends DurableObject {
   private connections: Map<string, WebSocket> = new Map();
   // 活跃随机匹配对局：roomCode → { playerCount, createdAt }
   private activeRooms: Map<string, ActiveRoom> = new Map();
+  // 匹配池人数观察者 WebSocket 集合（通过 /ws/pool 连接，仅接收 POOL_STATS 推送）
+  private observers: Set<WebSocket> = new Set();
   private matchTimer: number | null = null;
   private _tickTimer: number | null = null;
 
@@ -121,6 +123,11 @@ export class MatchmakerObject extends DurableObject {
         }
         if (roomsChanged) this.persistState();
 
+        // 队列或对局变化时通知观察者
+        if (this.queue.length !== beforeLen || roomsChanged) {
+          this.broadcastPoolStats();
+        }
+
         if (this.queue.filter(e => e.connected).length >= 2) {
           this.tryMatch();
         }
@@ -161,6 +168,18 @@ export class MatchmakerObject extends DurableObject {
 
         // 使用 Hibernation API 接受连接
         this.state.acceptWebSocket(server);
+
+        // ── 观察者模式：/ws/pool 路径仅订阅匹配池人数推送，不参与队列 ──
+        const isObserver = url.pathname === '/ws/pool';
+        if (isObserver) {
+          this.observers.add(server);
+          // 立即推送当前统计
+          this.sendPoolStatsTo(server);
+          return new Response(null, {
+            status: 101,
+            webSocket: client,
+          });
+        }
 
         // 立即建立 WebSocket 到 playerId 的映射
         this.connections.set(playerId, server);
@@ -244,6 +263,15 @@ export class MatchmakerObject extends DurableObject {
 
   // ── Hibernation API: WebSocket 消息处理 ──
   async webSocketMessage(ws: WebSocket, message: string): Promise<void> {
+    // 观察者连接：仅处理 POOL_STATS_SUBSCRIBE（重连后重新订阅）
+    if (this.observers.has(ws)) {
+      const msg = parseMessage(message);
+      if (msg?.type === C2S.POOL_STATS_SUBSCRIBE) {
+        this.sendPoolStatsTo(ws);
+      }
+      return;
+    }
+
     // 从 connections 映射中查找 playerId
     let playerId = '';
     for (const [pid, storedWs] of this.connections.entries()) {
@@ -271,6 +299,12 @@ export class MatchmakerObject extends DurableObject {
 
   // ── Hibernation API: WebSocket 关闭处理 ──
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+    // 观察者连接：仅从 observers 移除，不涉及队列状态
+    if (this.observers.has(ws)) {
+      this.observers.delete(ws);
+      return;
+    }
+
     // 从 connections 映射中查找 playerId
     let playerId = '';
     for (const [pid, storedWs] of this.connections.entries()) {
@@ -288,12 +322,20 @@ export class MatchmakerObject extends DurableObject {
         entry.connected = false;
         entry.ws = null;
         this.persistState();
+        // 队列人数变化，通知观察者
+        this.broadcastPoolStats();
       }
     }
   }
 
   // ── Hibernation API: WebSocket 错误处理 ──
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    // 观察者连接：仅从 observers 移除
+    if (this.observers.has(ws)) {
+      this.observers.delete(ws);
+      return;
+    }
+
     // 从 connections 映射中查找 playerId
     let playerId = '';
     for (const [pid, storedWs] of this.connections.entries()) {
@@ -310,6 +352,7 @@ export class MatchmakerObject extends DurableObject {
         entry.connected = false;
         entry.ws = null;
         this.persistState();
+        this.broadcastPoolStats();
       }
     }
   }
@@ -394,6 +437,7 @@ export class MatchmakerObject extends DurableObject {
       console.log(`[MatchmakerDO.addToQueue] player=${playerId} re-joined (existing). queue now: ${this.queue.map(e => e.playerId).join(',')}`);
       this.tryMatch();
       this.persistState();
+      this.broadcastPoolStats();
       return;
     }
 
@@ -416,12 +460,14 @@ export class MatchmakerObject extends DurableObject {
     this.broadcastQueueStatus();
     this.tryMatch();
     await this.persistState();
+    this.broadcastPoolStats();
   }
 
   private removeFromQueue(playerId: string): void {
     this.queue = this.queue.filter(e => e.playerId !== playerId);
     this.broadcastQueueStatus();
     this.persistState();
+    this.broadcastPoolStats();
   }
 
   private broadcastQueueStatus(): void {
@@ -522,6 +568,7 @@ export class MatchmakerObject extends DurableObject {
 
     this.broadcastQueueStatus();
     this.persistState();
+    this.broadcastPoolStats();
   }
 
   // ── RPC: RoomObject 销毁时通知匹配器减少活跃对局计数 ──
@@ -530,6 +577,7 @@ export class MatchmakerObject extends DurableObject {
       this.activeRooms.delete(roomCode);
       this.persistState();
       console.log(`[MatchmakerDO.notifyMatchEnded] room=${roomCode} removed. activeRooms=${this.activeRooms.size}`);
+      this.broadcastPoolStats();
     }
   }
 
@@ -538,6 +586,30 @@ export class MatchmakerObject extends DurableObject {
     if (ws) {
       try {
         sendJson(ws, type, payload);
+      } catch { /* ignore */ }
+    }
+  }
+
+  // ── 匹配池人数统计：计算并推送 ──
+  private getPoolStats(): { waiting: number; in_match: number; total: number } {
+    const waiting = this.queue.filter(e => e.connected).length;
+    const inMatch = Array.from(this.activeRooms.values())
+      .reduce((sum, r) => sum + r.playerCount, 0);
+    return { waiting, in_match: inMatch, total: waiting + inMatch };
+  }
+
+  private sendPoolStatsTo(ws: WebSocket): void {
+    try {
+      sendJson(ws, S2C.POOL_STATS, this.getPoolStats());
+    } catch { /* ignore */ }
+  }
+
+  private broadcastPoolStats(): void {
+    if (this.observers.size === 0) return;
+    const stats = this.getPoolStats();
+    for (const ws of this.observers) {
+      try {
+        sendJson(ws, S2C.POOL_STATS, stats);
       } catch { /* ignore */ }
     }
   }

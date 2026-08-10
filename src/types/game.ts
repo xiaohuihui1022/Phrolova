@@ -157,6 +157,8 @@ export interface RoomPlayerView {
   roundWins: number;
   attemptsUsed: number;
   attemptsLimit: number;
+  // 仅"创建房间"路径使用：玩家是否已点击"准备"
+  ready: boolean;
   guesses: GuessHistoryRow[];
   isMe: boolean;
 }
@@ -197,4 +199,6 @@ export interface MultiplayerRoomState {
   exitedPlayers?: string[];
   // 游戏中断开连接、处于重连宽限期的玩家 ID（供前端显示"对手正在重连..."提示）
   reconnectingPlayers?: string[];
+  // 是否为随机匹配路径（true：自动开始；false：创建房间路径，需准备+房主开始）
+  isRandomMatch?: boolean;
 }

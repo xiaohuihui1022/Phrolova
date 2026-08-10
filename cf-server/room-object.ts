@@ -98,21 +98,17 @@ export class RoomObject extends DurableObject {
       }
 
       // 恢复后：处理重连宽限期（DO 冬眠唤醒场景）
-      if (this.roomStatus === 'playing' && this.disconnectedPlayers.size > 0) {
+      // 现在 waiting / countdown / playing / finished 所有阶段都可能处于重连宽限期
+      if (this.disconnectedPlayers.size > 0) {
         const remaining = this.graceDeadline - Date.now();
         if (remaining <= 0) {
-          // 宽限期在冬眠期间已过期：直接结算
-          if (this.disconnectedPlayers.size >= this.players.length) {
-            this.disconnectedPlayers.clear();
-          } else {
-            this.forfeitBy = this.disconnectedPlayers.values().next().value || null;
-            this.disconnectedPlayers.clear();
-          }
-          this.timerPaused = false;
-          await this.endMatch();
+          // 宽限期在冬眠期间已过期：走统一过期逻辑
+          this.handleGraceExpired();
         } else {
-          // 用剩余时间重启宽限计时器，游戏计时保持暂停
-          this.timerPaused = true;
+          // 用剩余时间重启宽限计时器；playing 阶段保持计时暂停
+          if (this.roomStatus === 'playing') {
+            this.timerPaused = true;
+          }
           this.reconnectTimer = setTimeout(() => {
             this.handleGraceExpired();
           }, remaining) as unknown as number;
@@ -301,33 +297,35 @@ export class RoomObject extends DurableObject {
     const wasPlayer = this.players.find(p => p.playerId === playerId);
 
     if (wasPlayer) {
-      // 如果游戏已结束，把断开视为退出房间（让剩余玩家能继续查看数据）
-      if (this.roomStatus === 'finished') {
-        this.exitedPlayers.add(playerId);
-        // 如果两个玩家都已退出/断开，销毁房间
-        if (this.players.every(p => this.exitedPlayers.has(p.playerId))) {
-          this.destroyRoom();
-          return;
+      // 整场对局的任意阶段（waiting / countdown / playing / finished）
+      // 两人都在场时给予 30 秒断线重连宽限期，避免页面刷新或网络抖动误判退出
+      if (this.players.length === 2) {
+        // playing 阶段需要额外暂停游戏计时
+        if (this.roomStatus === 'playing') {
+          this.pauseGameTimer();
         }
-        // 通知仍在房间的玩家：对手已离开
+        // finished 阶段不要直接加入 exitedPlayers，给予重连机会再决定是否退出
+        this.disconnectedPlayers.add(playerId);
+        this.startReconnectGrace();
         this.broadcastState();
         this.persistState();
         return;
       }
 
-      // 游戏中断开连接：启动重连宽限期，而非立即判负
-      // 玩家可能只是刷新页面或网络抖动，给 30 秒重连窗口
-      if (this.roomStatus === 'playing' && this.players.length === 2) {
-        this.disconnectedPlayers.add(playerId);
-        this.pauseGameTimer();
-        this.startReconnectGrace();
+      // 仅单人在房间（对手已退出等）或未识别为玩家的连接：按旧逻辑直接移除
+      if (this.roomStatus === 'finished') {
+        this.exitedPlayers.add(playerId);
+        if (this.players.every(p => this.exitedPlayers.has(p.playerId))) {
+          this.destroyRoom();
+          return;
+        }
         this.broadcastState();
         this.persistState();
         return;
       }
     }
 
-    // waiting/countdown 阶段断开：直接移除玩家
+    // 单人 / 非玩家 等边界情况：直接移除
     this.players = this.players.filter(p => p.playerId !== playerId);
     if (this.creator === playerId) {
       this.creator = this.players[0]?.playerId || '';
@@ -370,6 +368,12 @@ export class RoomObject extends DurableObject {
         break;
       case C2S.RESUME_ROOM:
         await this.handleResumeRoom(playerId);
+        break;
+      case C2S.PLAYER_READY:
+        await this.handlePlayerReady(playerId);
+        break;
+      case C2S.START_MATCH:
+        await this.handleStartMatch(playerId);
         break;
       default:
         this.sendToPlayer(playerId, S2C.ERROR, { message: `未知消息类型: ${type}` });
@@ -467,8 +471,9 @@ export class RoomObject extends DurableObject {
     this.broadcast(S2C.ROOM_JOINED, { roomCode: this.roomCode });
     this.broadcastState();
 
-    // 仅当 2 名玩家都在房间时才开始倒计时
-    if (this.players.length === 2) {
+    // 仅随机匹配路径在两人齐聚后自动开始倒计时；
+    // "创建房间"路径需要玩家点"准备"、房主点"开始"才会开始（见 handlePlayerReady/handleStartMatch）
+    if (this.players.length === 2 && this.isRandomMatch) {
       this.opponentId = this.players.find(p => p.playerId !== playerId)?.playerId || '';
       // 延迟开始倒计时：给加入的玩家足够时间完成路由跳转和组件挂载
       // 避免玩家刚进入房间页面时倒计时已过半甚至游戏已开始
@@ -926,7 +931,7 @@ export class RoomObject extends DurableObject {
     }
 
     this.rematchVotes.push(playerId);
-    
+
     // 需要双方都同意
     const allAgreed = this.players.every(p => this.rematchVotes.includes(p.playerId));
     if (allAgreed && this.players.length >= 2) {
@@ -951,13 +956,20 @@ export class RoomObject extends DurableObject {
         player.attemptsLimit = limit;
         player.guesses = [];
         player.roundWins = 0;
+        // 创建房间路径下重置准备状态，等待玩家重新准备；随机匹配路径不使用此字段
+        player.ready = false;
       }
 
-      // 双方准备就绪，开始倒计时
-      this.startCountdown();
+      if (this.isRandomMatch) {
+        // 随机匹配：双方同意后自动开始倒计时
+        this.startCountdown();
+      } else {
+        // 创建房间路径：回到 waiting，需要重新准备 + 房主手动开始
+        this.broadcastState();
+      }
     } else {
       this.broadcast(S2C.MATCHING, {
-        message: `等待另一位玩家同意重新开始 (${this.rematchVotes.length}/${this.players.length})`,
+        message: `等待另一位玩家同意继续游戏 (${this.rematchVotes.length}/${this.players.length})`,
         inQueue: true,
       });
     }
@@ -973,6 +985,67 @@ export class RoomObject extends DurableObject {
     } else {
       this.sendToPlayer(playerId, S2C.ERROR, { message: '未找到房间会话' });
     }
+  }
+
+  // ── 玩家标记已准备（仅"创建房间"路径） ──
+  private async handlePlayerReady(playerId: string): Promise<void> {
+    // 随机匹配路径不使用准备机制，准备消息无效
+    if (this.isRandomMatch) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '当前房间无需准备' });
+      return;
+    }
+    if (this.roomStatus !== 'waiting') {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '对局已开始或已结束' });
+      return;
+    }
+    const player = this.players.find(p => p.playerId === playerId);
+    if (!player) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '未在房间中' });
+      return;
+    }
+    // 房主无需准备：房主通过"开始对局"按钮启动
+    if (this.creator === playerId) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '房主请直接点击开始对局' });
+      return;
+    }
+    if (player.ready) {
+      // 已准备，幂等处理：不再重复广播
+      return;
+    }
+    player.ready = true;
+    this.broadcastState();
+    await this.persistState();
+  }
+
+  // ── 房主手动开始对局（仅"创建房间"路径） ──
+  private async handleStartMatch(playerId: string): Promise<void> {
+    // 随机匹配路径不使用手动开始
+    if (this.isRandomMatch) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '当前房间无需手动开始' });
+      return;
+    }
+    if (this.roomStatus !== 'waiting') {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '对局已开始或已结束' });
+      return;
+    }
+    if (this.creator !== playerId) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '仅房主可以开始对局' });
+      return;
+    }
+    if (this.players.length < 2) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '等待对手加入房间' });
+      return;
+    }
+    // 要求所有非房主玩家都已准备
+    const allReady = this.players
+      .filter(p => p.playerId !== this.creator)
+      .every(p => p.ready);
+    if (!allReady) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '对手尚未准备' });
+      return;
+    }
+    this.opponentId = this.players.find(p => p.playerId !== playerId)?.playerId || '';
+    this.startCountdown();
   }
 
   // ── 辅助方法 ──
@@ -1000,6 +1073,8 @@ export class RoomObject extends DurableObject {
       roundWins: 0,
       attemptsUsed: 0,
       attemptsLimit: this.quizType === 'resonator' ? 4 : 8,
+      // 默认未准备；仅"创建房间"路径使用，随机匹配路径不依赖此字段
+      ready: false,
       guesses: [],
     });
   }
@@ -1066,6 +1141,7 @@ export class RoomObject extends DurableObject {
         roundWins: p.roundWins,
         attemptsUsed: p.attemptsUsed,
         attemptsLimit: p.attemptsLimit,
+        ready: p.ready,
         guesses: shouldRevealAll
           ? p.guesses.map(g => ({ ...g, revealed: true }))
           : p.guesses,
@@ -1080,6 +1156,7 @@ export class RoomObject extends DurableObject {
       })),
       exitedPlayers: Array.from(this.exitedPlayers),
       reconnectingPlayers: Array.from(this.disconnectedPlayers),
+      isRandomMatch: this.isRandomMatch,
     };
   }
 
@@ -1161,21 +1238,59 @@ export class RoomObject extends DurableObject {
 
   private handleGraceExpired(): void {
     this.reconnectTimer = null;
-    if (this.roomStatus !== 'playing') return;
     if (this.disconnectedPlayers.size === 0) return;
 
-    if (this.disconnectedPlayers.size >= this.players.length) {
-      // 所有玩家都断开且未重连：平局，不设胜负
+    // finished 阶段：宽限过期后把断线的玩家视为真正退出（加入 exitedPlayers）
+    if (this.roomStatus === 'finished') {
+      for (const pid of this.disconnectedPlayers) {
+        this.exitedPlayers.add(pid);
+      }
       this.disconnectedPlayers.clear();
-      this.timerPaused = false;
-      this.endMatch();
-    } else {
-      // 仍有玩家在线：断开的玩家弃权
-      this.forfeitBy = this.disconnectedPlayers.values().next().value || null;
-      this.disconnectedPlayers.clear();
-      this.timerPaused = false;
-      this.endMatch();
+      // 如果两个玩家都已退出，销毁房间
+      if (this.players.every(p => this.exitedPlayers.has(p.playerId))) {
+        this.destroyRoom();
+        return;
+      }
+      this.broadcastState();
+      this.persistState();
+      return;
     }
+
+    // playing 阶段：按游戏内弃权逻辑处理
+    if (this.roomStatus === 'playing') {
+      if (this.disconnectedPlayers.size >= this.players.length) {
+        // 所有玩家都断开且未重连：平局，不设胜负
+        this.disconnectedPlayers.clear();
+        this.timerPaused = false;
+        this.endMatch();
+      } else {
+        // 仍有玩家在线：断开的玩家弃权
+        this.forfeitBy = this.disconnectedPlayers.values().next().value || null;
+        this.disconnectedPlayers.clear();
+        this.timerPaused = false;
+        this.endMatch();
+      }
+      return;
+    }
+
+    // waiting / countdown 阶段：宽限过期后真正移除断线玩家
+    for (const pid of Array.from(this.disconnectedPlayers)) {
+      this.players = this.players.filter(p => p.playerId !== pid);
+      if (this.creator === pid) {
+        this.creator = this.players[0]?.playerId || '';
+      }
+    }
+    this.disconnectedPlayers.clear();
+    this.timerPaused = false;
+
+    // 如果房间空了就发送 ROOM_EXPIRED 给仍在线的连接（通常已没在线玩家），不 destroyRoom 交给空闲清理或下次加入
+    if (this.players.length === 0) {
+      this.broadcast(S2C.ROOM_EXPIRED, { message: '玩家已离开房间' });
+    } else {
+      this.broadcast(S2C.ROOM_EXPIRED, { message: '对手已离开' });
+    }
+    this.broadcastState();
+    this.persistState();
   }
 
   private async persistState(): Promise<void> {

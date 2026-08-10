@@ -26,7 +26,6 @@ import { generateToken, hmacSha256Hex, timingSafeEqualStrings } from '../../src/
 type Bindings = {
   DB: D1Database;
   KV: KVNamespace;
-  MATCHMAKER: DurableObjectNamespace;
   SECRET_KEY: string;
   ADMIN_USER: string;
   ADMIN_PASSWORD: string;
@@ -182,32 +181,6 @@ app.get('/api/stats/online', async (c) => {
       updated_at: Date.now(),
       degraded: true,
     }));
-  }
-});
-
-// ── 匹配池实时在线人数统计 ──────────────────────────────────────────
-// 从 MatchmakerObject DO 读取队列等待人数 + 活跃对局人数
-// 轻量级 HTTP GET（非 WebSocket），前端每 8 秒轮询一次
-app.get('/api/matchmaking/pool-stats', async (c) => {
-  try {
-    const id = c.env.MATCHMAKER.idFromName('default');
-    const stub = c.env.MATCHMAKER.get(id);
-    const resp = await stub.fetch(new Request('https://internal/matchmaker', { method: 'GET' }));
-    const data = await resp.json() as {
-      waitingPlayers?: number;
-      activeMatchPlayers?: number;
-      totalOnline?: number;
-    };
-    const waiting = data.waitingPlayers ?? 0;
-    const inMatch = data.activeMatchPlayers ?? 0;
-    return c.json(success({
-      waiting,
-      in_match: inMatch,
-      total: waiting + inMatch,
-    }));
-  } catch (e) {
-    console.warn('[matchmaking/pool-stats] error:', e);
-    return c.json(success({ waiting: 0, in_match: 0, total: 0, degraded: true }));
   }
 });
 

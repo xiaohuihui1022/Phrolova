@@ -396,7 +396,7 @@ function declineCookies() {
         </a>
         <span class="home-social-divider">·</span>
         <a href="https://phrolova.usotsuki-kaze.com/" target="_blank" rel="noopener" class="home-social-link">
-          <Icon icon="ph:link-duotone" /> 友联
+          <Icon icon="ph:link-duotone" /> 友链
         </a>
         <span class="home-social-divider">·</span>
         <a target="_blank"

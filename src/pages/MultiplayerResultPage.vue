@@ -64,6 +64,18 @@ function leaveRoom() {
   multiGameStore.leaveRoom().catch(() => undefined);
   router.push({ name: "multi-lobby" });
 }
+
+/** 返回房间页：若房间状态仍在则直接回到房间，否则回大厅 */
+function backToRoom() {
+  const multiGameStore = useMultiGameStore();
+  if (multiGameStore.roomState) {
+    router.push({ name: "multi-room" });
+  } else {
+    // 房间已失效（被销毁或已退出），清理并回大厅
+    removeLocalStorage("phrolova_match_result");
+    router.push({ name: "multi-lobby" });
+  }
+}
 </script>
 
 <template>
@@ -74,6 +86,10 @@ function leaveRoom() {
       <p v-if="matchScoreText" class="mrp-score">{{ matchScoreText }}</p>
       <p class="mrp-sub">第 {{ roomState.round }} 局 · {{ roomState.quizType === "skeleton" ? "声骸" : "共鸣者" }}模式</p>
       <div class="mrp-back-row">
+        <button class="mrp-back" @click="backToRoom">
+          <Icon icon="ph:door-duotone" class="mrp-back-icon" aria-hidden="true" />
+          返回房间
+        </button>
         <button class="mrp-back mrp-back--danger" @click="leaveRoom">退出房间</button>
       </div>
     </header>

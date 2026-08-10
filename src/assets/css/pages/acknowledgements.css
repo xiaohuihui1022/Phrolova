@@ -63,6 +63,31 @@
 .ack-item-body { flex: 1; min-width: 0; }
 .ack-item-name { font-weight: 700; font-size: 0.95rem; letter-spacing: 0.04em; }
 .ack-item-desc { margin: 0.15rem 0 0; font-size: 0.78rem; color: var(--text-sub); line-height: 1.5; }
+.ack-item-desc a {
+  color: var(--gold);
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in oklab, var(--gold) 50%, transparent);
+  padding: 0 0.1em;
+  border-radius: 2px;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  word-break: break-all;
+}
+.ack-item-desc a:hover {
+  color: #fff;
+  background: color-mix(in oklab, var(--gold) 22%, transparent);
+  border-bottom-color: var(--gold);
+}
+.ack-item-desc code {
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--text-main) 8%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+.ack-item-desc p { margin: 0.25rem 0; }
+.ack-item-desc br { content: ""; display: block; margin: 0.15rem 0; }
+.ack-item-desc ul, .ack-item-desc ol { padding-left: 1.2rem; margin: 0.25rem 0; }
+.ack-item-desc li { margin: 0.1rem 0; }
 
 /* ── Footer ── */
 .ack-footer { padding: 1rem 0.5rem 0; }

@@ -47,11 +47,53 @@ const battleTitle = computed(() => {
   return "共鸣者对战 / 标准";
 });
 
+// 是否为房主（创建房间路径下房主通过"开始对局"按钮启动对局）
+const isCreator = computed(() =>
+  multiGameStore.roomState?.creator === authStore.playerId,
+);
+
+// 非房主玩家对象（需要点击"准备"的一方）
+const guestPlayer = computed(() =>
+  multiGameStore.roomState?.players.find(
+    (p) => p.playerId !== multiGameStore.roomState?.creator,
+  ) ?? null,
+);
+
+// 非房主玩家是否已准备
+const guestReady = computed(() => guestPlayer.value?.ready ?? false);
+
+// 我自己是否已准备（房主不参与准备，恒为 false）
+const myReady = computed(() => {
+  if (isCreator.value) return false;
+  return multiGameStore.me?.ready ?? false;
+});
+
+// 房主是否可以点击"开始对局"：双方在场且非房主已准备
+const canStartMatch = computed(() =>
+  !!multiGameStore.roomState &&
+  multiGameStore.roomState.players.length >= 2 &&
+  guestReady.value,
+);
+
+// 是否显示"准备/开始"面板：仅创建房间路径 + waiting + 双方在场
+const showReadyPanel = computed(() => {
+  const rs = multiGameStore.roomState;
+  if (!rs) return false;
+  return rs.roomStatus === "waiting" && rs.isRandomMatch === false && rs.players.length >= 2;
+});
+
 const stagePromptTitle = computed(() => {
   const rs = multiGameStore.roomState;
   if (!rs) return "";
   if (rs.roomStatus === "waiting") {
-    return multiGameStore.opponent ? "对手已加入，即将开始..." : "等待对手加入...";
+    if (!multiGameStore.opponent) return "等待对手加入...";
+    // 随机匹配路径：自动开始
+    if (rs.isRandomMatch) return "对手已加入，即将开始...";
+    // 创建房间路径：根据角色显示不同提示
+    if (isCreator.value) {
+      return guestReady.value ? "点击开始对局" : "等待对手准备...";
+    }
+    return myReady.value ? "已准备，等待房主开始" : "点击准备开始对局";
   }
   if (rs.roomStatus === "countdown") return "对局即将开始";
   if (rs.quizType === "skeleton") return "在下方输入声骸名称开始实时猜测";
@@ -79,7 +121,12 @@ const dockHintText = computed(() => {
   if (multiGameStore.canGuess) return "当前轮到你提交猜测";
   if (rs.roomStatus === "countdown") return "对局即将开始";
   if (rs.roomStatus === "waiting") {
-    return multiGameStore.opponent ? "对手已加入，即将开始..." : "等待对手加入...";
+    if (!multiGameStore.opponent) return "等待对手加入...";
+    // 随机匹配路径：自动开始
+    if (rs.isRandomMatch) return "对手已加入，即将开始...";
+    // 创建房间路径：根据角色提示
+    if (isCreator.value) return guestReady.value ? "点击开始对局" : "等待对手准备...";
+    return myReady.value ? "已准备，等待房主开始" : "点击准备开始对局";
   }
   return "等待系统推进或对手行动";
 });
@@ -113,6 +160,8 @@ const opponentGuesses = computed(() => {
 const showMatchResult = ref(false);
 const matchResultSeen = ref(false);
 const showRoundPopup = ref(false);
+// 点击「继续游戏」后进入等待对方同意状态；对方也点后房间重置到 waiting，弹窗自然关闭
+const rematchPending = ref(false);
 let roundPopupTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 我方猜测滚动容器（每块 panel 内独立滚动，避免整页被顶下去手动划） */
@@ -196,6 +245,10 @@ watch(
     }
     if (status !== "finished") {
       matchResultSeen.value = false;
+      // 房间离开 finished（对方同意继续游戏，已重置到 waiting/countdown）
+      // 关闭弹窗、重置等待状态，让准备面板或倒计时正常显示
+      showMatchResult.value = false;
+      rematchPending.value = false;
     }
   },
 );
@@ -261,16 +314,20 @@ const matchScoreText = computed(() => {
   return d > 0 ? `+${d} 分` : `${d} 分`;
 });
 
-const isCreator = computed(() =>
-  multiGameStore.roomState?.creator === authStore.playerId,
-);
-
 // 对手处于重连宽限期（断开连接但尚未超时弃权）
 const opponentReconnecting = computed(() => {
   const rs = multiGameStore.roomState;
   if (!rs?.reconnectingPlayers || rs.reconnectingPlayers.length === 0) return false;
   const opp = rs.players.find(p => !p.isMe);
   return opp ? rs.reconnectingPlayers.includes(opp.playerId) : false;
+});
+
+// 重连 banner 文案：不同阶段对应的后续处理不同
+const reconnectBannerText = computed(() => {
+  const status = multiGameStore.roomState?.roomStatus;
+  if (status === "playing") return "对手正在重新连接...（30 秒内未重连将判负）";
+  if (status === "finished") return "对手正在重新连接...（30 秒内未重连将视为离开房间）";
+  return "对手正在重新连接...（30 秒内未重连将离开房间）";
 });
 
 function closeMatchResult() { showMatchResult.value = false; }
@@ -307,6 +364,25 @@ async function leaveRoom() {
   router.push("/multi");
 }
 
+/** 非房主玩家点击"准备" */
+function onReady() {
+  multiGameStore.sendReady();
+}
+
+/** 房主点击"开始对局" */
+function onStartMatch() {
+  multiGameStore.startMatch();
+}
+
+/** 结算弹窗点击"继续游戏"：发送 RESTART_ROOM，进入等待对方同意状态
+ *  对方也点后房间重置到 waiting，watch roomStatus 会自动关闭弹窗
+ */
+function handleContinueGame() {
+  if (rematchPending.value) return;
+  multiGameStore.restartRoom();
+  rematchPending.value = true;
+}
+
 onMounted(async () => {
   nextTick(() => {
     ctx = gsap.context(() => {
@@ -320,6 +396,18 @@ onMounted(async () => {
   await multiGameStore.resumeRoom().catch(() => undefined);
   if (multiGameStore.roomState) {
     await dictionaryStore.ensureLoaded(multiGameStore.roomState.quizType);
+  }
+  // 从对局回放页"返回房间"或重连回来时，组件重挂载但 store 内 roomState 已是 finished，
+  // watch 不会因为值没变而触发弹窗，因此此处主动补一次显示
+  const rs = multiGameStore.roomState;
+  if (rs?.roomStatus === "finished" && !matchResultSeen.value) {
+    const hasResult =
+      (multiGameStore.matchScoreDelta !== 0) ||
+      (rs.overallWinner !== null && rs.overallWinner !== undefined);
+    if (hasResult) {
+      showMatchResult.value = true;
+      matchResultSeen.value = true;
+    }
   }
 });
 
@@ -376,7 +464,7 @@ watch(
 
         <div v-if="opponentReconnecting" class="mr-reconnect-banner">
           <Icon icon="ph:plugs-connected-duotone" class="mr-reconnect-icon" />
-          <span>对手正在重新连接...（30 秒内未重连将判负）</span>
+          <span>{{ reconnectBannerText }}</span>
         </div>
         <div class="mr-info-card">
           <MatchSummary :room-state="multiGameStore.roomState" />
@@ -415,6 +503,45 @@ watch(
             <div class="empty-state-glyph"><Icon icon="ph:target-duotone" aria-hidden="true" /></div>
             <h2 class="empty-state-title">{{ stagePromptTitle }}</h2>
             <p class="empty-state-desc">{{ stagePromptSubtitle }}</p>
+
+            <!-- 准备/开始面板：仅"创建房间"路径 + waiting + 双方在场时显示 -->
+            <div v-if="showReadyPanel" class="mr-ready-panel">
+              <div class="mr-ready-status">
+                <div class="mr-ready-chip" :class="{ 'is-ready': guestReady }">
+                  <Icon
+                    :icon="guestReady ? 'ph:check-circle-duotone' : 'ph:circle-duotone'"
+                    class="mr-ready-chip-icon"
+                    aria-hidden="true"
+                  />
+                  <span class="mr-ready-chip-label">{{ isCreator ? "对手" : "你" }}</span>
+                  <span class="mr-ready-chip-tag">{{ guestReady ? "已准备" : "未准备" }}</span>
+                </div>
+              </div>
+
+              <!-- 房主：开始对局按钮 -->
+              <button
+                v-if="isCreator"
+                class="btn btn-submit mr-ready-btn"
+                :disabled="!canStartMatch"
+                @click="onStartMatch"
+              >
+                <Icon icon="ph:play-duotone" class="btn-icon" aria-hidden="true" />
+                开始对局
+              </button>
+
+              <!-- 非房主：准备按钮 -->
+              <button
+                v-else-if="!myReady"
+                class="btn btn-submit mr-ready-btn"
+                @click="onReady"
+              >
+                <Icon icon="ph:check-duotone" class="btn-icon" aria-hidden="true" />
+                准备
+              </button>
+
+              <!-- 非房主已准备：等待提示 -->
+              <p v-else class="mr-ready-waiting">已准备，等待房主开始对局...</p>
+            </div>
           </div>
 
           <div v-if="hasBattleHistory" class="mr-boards" :class="`mr-boards--${boardLayout}`">
@@ -519,6 +646,19 @@ watch(
         </div>
       </div>
       <div class="mr-result-actions">
+        <button
+          class="btn btn-submit mr-result-continue"
+          :disabled="rematchPending"
+          @click="handleContinueGame"
+        >
+          <Icon
+            :icon="rematchPending ? 'ph:hourglass-medium' : 'ph:play-duotone'"
+            class="btn-icon"
+            :class="{ 'mr-icon-spin': rematchPending }"
+            aria-hidden="true"
+          />
+          {{ rematchPending ? "等待对方同意..." : "继续游戏" }}
+        </button>
         <button class="btn-ghost" @click="openFullResultPage">查看完整对局</button>
         <button class="btn-ghost btn-ghost--danger" @click="closeMatchResult(); leaveRoom();">退出房间</button>
       </div>

@@ -11,7 +11,8 @@ import { useAuthStore } from "@/stores/auth";
 import { useMultiGameStore } from "@/stores/multiGame";
 import type { Difficulty, QuizType, TabOption } from "@/types";
 import { errMsg } from "@/api/client";
-import { fetchPoolStats, type PoolStatsResponse } from "@/api/stats";
+import { C2S, S2C } from "@/api";
+import { getGameSocket, releaseGameSocket, type GameWebSocket } from "@/api/socket";
 
 const authStore = useAuthStore();
 const multiGameStore = useMultiGameStore();
@@ -43,7 +44,7 @@ const difficultyTabs: TabOption[] = [
 
 const queueSummary = computed(() => {
   if (config.quizType === "global") {
-    return "全局匹配 / BO3";
+    return "全局匹配";
   }
   if (config.quizType === "skeleton") {
     return `声骸 / ${config.difficulty === "easy" ? "简单" : "困难"} / BO${config.bestOf}`;
@@ -88,55 +89,69 @@ watch(() => multiGameStore.roomState?.roomCode, (roomCode) => {
   if (roomCode) router.push("/multi/room");
 });
 
-// ── 匹配池实时在线人数 ──
-// 每 8 秒轮询一次，仅在已登录且未进入队列/房间时拉取
-const poolStats = ref<PoolStatsResponse | null>(null);
-let poolStatsTimer: ReturnType<typeof setInterval> | null = null;
+// ── 匹配池实时在线人数（WebSocket 推送） ──
+// 通过 /ws/pool 连接到 MatchmakerObject 作为观察者，服务端在匹配池人数变化时主动推送
+const poolStats = ref<{ waiting: number; in_match: number; total: number } | null>(null);
+const POOL_WS_PATH = "/ws/pool";
+let poolWs: GameWebSocket | null = null;
+let poolWsRefHeld = false;
 
-async function refreshPoolStats() {
-  // 仅在未匹配、未在房间时拉取（减少不必要的请求）
+async function subscribePoolStats() {
+  if (poolWsRefHeld) return;
   if (!authStore.isAuthenticated || multiGameStore.inQueue || multiGameStore.roomState) return;
   try {
-    poolStats.value = await fetchPoolStats();
+    poolWs = await getGameSocket(POOL_WS_PATH, {
+      onMessage: (msg) => {
+        if (msg.type === S2C.POOL_STATS) {
+          poolStats.value = {
+            waiting: (msg.payload.waiting as number) ?? 0,
+            in_match: (msg.payload.in_match as number) ?? 0,
+            total: (msg.payload.total as number) ?? 0,
+          };
+        }
+      },
+      onOpen: () => {
+        // 重连后重新订阅，触发服务端推送当前统计
+        poolWs?.send(C2S.POOL_STATS_SUBSCRIBE);
+      },
+    });
+    poolWsRefHeld = true;
+    // 首次连接后也发送订阅（服务端在 accept 时已推送一次，这里作为兜底）
+    poolWs.send(C2S.POOL_STATS_SUBSCRIBE);
   } catch {
     // 静默失败，不影响用户使用
   }
 }
 
-function startPoolStatsPolling() {
-  if (poolStatsTimer !== null) return;
-  refreshPoolStats();
-  poolStatsTimer = setInterval(refreshPoolStats, 8000);
-}
-
-function stopPoolStatsPolling() {
-  if (poolStatsTimer !== null) {
-    clearInterval(poolStatsTimer);
-    poolStatsTimer = null;
+function unsubscribePoolStats() {
+  if (poolWsRefHeld) {
+    releaseGameSocket(POOL_WS_PATH);
+    poolWsRefHeld = false;
+    poolWs = null;
   }
 }
 
-// 进入队列或房间时停止轮询并清空显示
+// 进入队列或房间时断开观察者连接；回到大厅时重新订阅
 watch(() => multiGameStore.inQueue, (inQueue) => {
-  if (inQueue) stopPoolStatsPolling();
-  else if (authStore.isAuthenticated) startPoolStatsPolling();
+  if (inQueue) unsubscribePoolStats();
+  else subscribePoolStats();
 });
 watch(() => multiGameStore.roomState, (roomState) => {
-  if (roomState) stopPoolStatsPolling();
-  else if (authStore.isAuthenticated && !multiGameStore.inQueue) startPoolStatsPolling();
+  if (roomState) unsubscribePoolStats();
+  else subscribePoolStats();
 });
 
 onMounted(async () => {
   if (authStore.isAuthenticated) {
     await multiGameStore.resumeRoom().catch(() => undefined);
     if (!multiGameStore.inQueue && !multiGameStore.roomState) {
-      startPoolStatsPolling();
+      subscribePoolStats();
     }
   }
 });
 
 onUnmounted(() => {
-  stopPoolStatsPolling();
+  unsubscribePoolStats();
 });
 </script>
 
@@ -201,13 +216,13 @@ onUnmounted(() => {
             <p class="ml-card-kicker">RANDOM MATCH</p>
             <h2 class="ml-card-title">
               随机匹配
-              <span v-if="poolStats && !poolStats.degraded" class="ml-pool-chip" :title="`等待 ${poolStats.waiting} · 对局中 ${poolStats.in_match}`">
+              <span v-if="poolStats" class="ml-pool-chip" :title="`等待 ${poolStats.waiting} · 对局中 ${poolStats.in_match}`">
                 <span class="ml-pool-dot" aria-hidden="true"></span>
                 {{ poolStats.total }} 人在线
               </span>
             </h2>
             <p class="ml-card-desc">自动匹配在线玩家，固定 BO3 赛制，匹配成功即进入房间。</p>
-            <p v-if="poolStats && !poolStats.degraded" class="ml-pool-detail">
+            <p v-if="poolStats" class="ml-pool-detail">
               等待 {{ poolStats.waiting }} · 对局中 {{ poolStats.in_match }}
             </p>
           </div>

@@ -26,7 +26,7 @@
 .glass-header-btn { display: grid; place-items: center; width: 2.2rem; height: 2.2rem; border: 1px solid var(--line-strong); border-radius: 8px; background: color-mix(in oklab, var(--surface-panel) 60%, transparent); color: var(--text-sub); font-size: 1.1rem; cursor: pointer; transition: color 0.2s, border-color 0.2s; }
 .glass-header-btn:hover { color: var(--gold); border-color: var(--gold); }
 .glass-header-btn--danger:hover { color: var(--color-error); border-color: var(--color-error); }
-.glass-header-theme { color: var(--gold-soft); font-size: 0.78rem; width: auto; padding: 0 0.45rem; }
+.glass-header-theme { color: var(--gold-soft); }
 .glass-header-theme:hover { color: var(--gold); }
 
 @media (max-width: 600px) {
@@ -36,7 +36,6 @@
   .glass-header-kicker { font-size: 0.52rem; }
   .glass-header-title { font-size: 0.66rem; }
   .glass-header-btn { width: 1.6rem; height: 1.6rem; font-size: 0.8rem; }
-  .glass-header-theme { font-size: 0.64rem; padding: 0 0.35rem; }
 }
 
 /* ── TabGroup ── */

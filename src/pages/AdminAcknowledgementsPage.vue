@@ -12,6 +12,7 @@ import {
   type AcknowledgementItem,
 } from "@/api";
 import { errMsg as apiErrMsg } from "@/api/client";
+import { sanitizeHtml } from "@/utils/sanitize";
 
 // 管理员 token 注入现在由 client.ts 请求拦截器统一处理（根据 hasAdminHint）
 // useAdmin 仅用于登录态展示 / 登出
@@ -279,8 +280,8 @@ onMounted(loadList);
           </select>
         </label>
         <label class="ad-field ad-form-field--w100">
-          <span class="ad-field-label">描述</span>
-          <textarea v-model="addForm.description" class="form-input" rows="3" placeholder="贡献详情"></textarea>
+          <span class="ad-field-label">描述 <small class="ad-field-hint">支持简单 HTML（&lt;a href target="_blank"&gt;、&lt;br&gt;、&lt;b&gt;、&lt;strong&gt; 等）</small></span>
+          <textarea v-model="addForm.description" class="form-input" rows="4" placeholder="例如：基于本项目二创，点击 <a href=&quot;https://example.com&quot; target=&quot;_blank&quot;>这里</a> 跳转"></textarea>
         </label>
         <label class="ad-field ad-form-field--w100">
           <span class="ad-field-label">头像链接（可选，留空则显示首字母）</span>
@@ -345,18 +346,21 @@ onMounted(loadList);
                 <span v-else class="ad-cell-edit" @click.stop="startRowEdit(row)">{{ categoryLabel(row.category) }}</span>
               </td>
               <td>
-                <textarea
-                  v-if="rowEditId === row.id"
-                  v-model="editDraft[row.id].description"
-                  class="form-input"
-                  rows="2"
-                  placeholder="贡献详情"
-                ></textarea>
+                <div v-if="rowEditId === row.id" class="ad-cell-editor">
+                  <textarea
+                    v-model="editDraft[row.id].description"
+                    class="form-input"
+                    rows="3"
+                    placeholder="支持简单 HTML：<a>、<br>、<b> 等"
+                  ></textarea>
+                  <p class="ad-field-hint">支持简单 HTML（<code>&lt;a href target="_blank"&gt;</code>、<code>&lt;br&gt;</code>、<code>&lt;b&gt;</code>、<code>&lt;strong&gt;</code> 等）</p>
+                </div>
                 <span
                   v-else
                   class="ad-cell-edit ad-cell-desc"
                   @click.stop="startRowEdit(row)"
-                >{{ row.description || "—" }}</span>
+                  v-html="row.description ? sanitizeHtml(row.description) : '—'"
+                ></span>
               </td>
               <td>
                 <input

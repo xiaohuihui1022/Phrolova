@@ -5,6 +5,7 @@ import { Icon } from "@iconify/vue";
 
 import EmptyState from "@/components/shared/EmptyState.vue";
 import { fetchAcknowledgements, type AcknowledgementItem } from "@/api";
+import { sanitizeHtml } from "@/utils/sanitize";
 
 const router = useRouter();
 const loading = shallowRef(false);
@@ -48,6 +49,11 @@ function onAvatarError(item: AcknowledgementItem, e: Event) {
   item.avatar = null;
   const img = e.target as HTMLImageElement;
   if (img) img.style.display = "none";
+}
+
+/** 描述：清理后通过 v-html 渲染，支持简单安全 HTML（<a>、<br>、<b> 等） */
+function renderDescription(desc: string | null | undefined): string {
+  return sanitizeHtml(desc);
 }
 
 onMounted(loadList);
@@ -106,7 +112,11 @@ onMounted(loadList);
               </div>
               <div class="ack-item-body">
                 <div class="ack-item-name">{{ item.player_id }}</div>
-                <p v-if="item.description" class="ack-item-desc">{{ item.description }}</p>
+                <p
+                  v-if="item.description"
+                  class="ack-item-desc"
+                  v-html="renderDescription(item.description)"
+                ></p>
               </div>
             </li>
           </ul>

@@ -74,3 +74,21 @@
 .mr-round-pop-enter-active { animation: mrRoundPopIn 0.25s ease both; }
 .mr-round-pop-leave-active { animation: mrRoundPopIn 0.2s ease reverse both; }
 @keyframes mrRoundPopIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+
+/* ── Ready / Start panel（创建房间路径 waiting 阶段） ── */
+.mr-ready-panel { display: flex; flex-direction: column; align-items: center; gap: 1rem; margin-top: 1.2rem; }
+.mr-ready-status { display: flex; align-items: center; justify-content: center; gap: 0.6rem; flex-wrap: wrap; }
+.mr-ready-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface-panel); color: var(--text-sub); font-size: 0.8rem; letter-spacing: 0.03em; transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease; }
+.mr-ready-chip.is-ready { border-color: color-mix(in oklab, var(--gold) 55%, transparent); background: color-mix(in oklab, var(--gold) 10%, var(--surface-panel)); color: var(--gold); }
+.mr-ready-chip-icon { font-size: 1.1rem; }
+.mr-ready-chip-label { font-weight: 700; }
+.mr-ready-chip-tag { color: var(--text-faint); font-size: 0.72rem; }
+.mr-ready-chip.is-ready .mr-ready-chip-tag { color: var(--gold); }
+.mr-ready-btn { min-width: 11rem; justify-content: center; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.06em; }
+.mr-ready-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.mr-ready-waiting { margin: 0; color: var(--text-sub); font-size: 0.85rem; letter-spacing: 0.03em; }
+
+/* ── 结算弹窗"继续游戏"按钮 ── */
+.mr-result-continue { min-width: 12rem; justify-content: center; font-size: 0.95rem; font-weight: 800; letter-spacing: 0.06em; }
+.mr-icon-spin { animation: mrIconSpin 1.2s linear infinite; }
+@keyframes mrIconSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

@@ -20,6 +20,10 @@ export const C2S = {
   RESTART_ROOM: 'multi:restart_room',
   HEARTBEAT: 'multi:heartbeat',
   RESUME_ROOM: 'multi:resume_room',
+  POOL_STATS_SUBSCRIBE: 'multi:pool_stats_subscribe',
+  // 仅"创建房间"路径使用：玩家标记自己已准备 / 房主手动开始对局
+  PLAYER_READY: 'multi:player_ready',
+  START_MATCH: 'multi:start_match',
 } as const;
 
 // ── 服务端→客户端 事件 ──
@@ -39,6 +43,7 @@ export const S2C = {
   ROOM_EXPIRED: 'multi:room_expired',
   KICKED: 'multi:kicked',
   PONG: 'multi:pong',
+  POOL_STATS: 'multi:pool_stats',
 } as const;
 
 // ── 类型 ──
@@ -51,6 +56,8 @@ export interface RoomPlayer {
   roundWins: number;
   attemptsUsed: number;
   attemptsLimit: number;
+  // 仅"创建房间"路径使用：玩家是否已点击"准备"。随机匹配路径不使用此字段。
+  ready: boolean;
   guesses: Array<{
     revealed: boolean;
     guess: Record<string, unknown>;
@@ -94,6 +101,8 @@ export interface RoomState {
   exitedPlayers: string[];
   // 游戏中断开连接、处于重连宽限期的玩家 ID（供前端显示"对手正在重连..."提示）
   reconnectingPlayers: string[];
+  // 是否为随机匹配路径（true：自动开始，不使用准备/手动开始；false：创建房间路径，需准备+房主开始）
+  isRandomMatch: boolean;
 }
 
 // ── 消息工具 ──
