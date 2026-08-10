@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { readCookie, writeCookie, removeCookie } from '@/composables/useStorage';
 
 const AUTH_HINT = 'phrolova_auth_hint';
 const ADMIN_HINT = 'phrolova_admin_hint';
@@ -41,34 +42,34 @@ function runPostRefreshHooks(): void {
  */
 export function hasAuthHint(): boolean {
   try {
-    if (localStorage.getItem(AUTH_HINT) === '1') return true;
-    const oldTok = localStorage.getItem(OLD_PLAYER_TOKEN_KEY);
+    if (readCookie(AUTH_HINT) === '1') return true;
+    const oldTok = readCookie(OLD_PLAYER_TOKEN_KEY);
     if (oldTok && oldTok.length >= MIN_TOKEN_LEN) {
-      localStorage.setItem(AUTH_HINT, '1');
+      writeCookie(AUTH_HINT, '1');
       return true;
     }
-  } catch { /* storage 访问失败 */ }
+  } catch { /* cookie 访问失败 */ }
   return false;
 }
 
 export function markAuthenticated(): void {
-  try { localStorage.setItem(AUTH_HINT, '1'); } catch { /* ignore */ }
+  try { writeCookie(AUTH_HINT, '1'); } catch { /* ignore */ }
 }
 
 export function clearAuthenticated(): void {
-  try { localStorage.removeItem(AUTH_HINT); } catch { /* ignore */ }
+  try { removeCookie(AUTH_HINT); } catch { /* ignore */ }
 }
 
 export function hasAdminHint(): boolean {
-  try { return localStorage.getItem(ADMIN_HINT) === '1'; } catch { return false; }
+  try { return readCookie(ADMIN_HINT) === '1'; } catch { return false; }
 }
 
 export function markAdmin(): void {
-  try { localStorage.setItem(ADMIN_HINT, '1'); } catch { /* ignore */ }
+  try { writeCookie(ADMIN_HINT, '1'); } catch { /* ignore */ }
 }
 
 export function clearAdmin(): void {
-  try { localStorage.removeItem(ADMIN_HINT); } catch { /* ignore */ }
+  try { removeCookie(ADMIN_HINT); } catch { /* ignore */ }
 }
 
 /**
@@ -106,8 +107,8 @@ export async function refreshAuthenticatedSession(force = false): Promise<boolea
         // 请求 header 直接读当前 token（与拦截器一致，只是不从实例走防循环）
         headers: {
           'Content-Type': 'application/json',
-          'X-Player-Id': localStorage.getItem(OLD_PLAYER_ID_KEY) ?? '',
-          'X-Player-Token': localStorage.getItem(OLD_PLAYER_TOKEN_KEY) ?? '',
+          'X-Player-Id': readCookie(OLD_PLAYER_ID_KEY) ?? '',
+          'X-Player-Token': readCookie(OLD_PLAYER_TOKEN_KEY) ?? '',
         },
         timeout: 15000,
         validateStatus: () => true, // 我们自己判 HTTP
@@ -115,12 +116,12 @@ export async function refreshAuthenticatedSession(force = false): Promise<boolea
 
       const data = res.data ?? {};
       if (res.status >= 200 && res.status < 300 && data.status === 'success' && data.player && data.token) {
-        // 成功：把新 token/player 写回 storage（applyPlayer 那层在 pinia 里调用时会通过 watcher 同步？
-        //   不，这里直接把 token 写入 localStorage 的 key，因为 authStore 用 useLocalStorage 代理）
+        // 成功：把新 token/player 写回 Cookie（applyPlayer 那层在 pinia 里调用时会通过 watcher 同步？
+        //   不，这里直接把 token 写入 cookie，因为 authStore 用 useCookieStorage 代理）
         try {
-          localStorage.setItem(OLD_PLAYER_TOKEN_KEY, data.token);
+          writeCookie(OLD_PLAYER_TOKEN_KEY, data.token);
           const pid = String((data.player as Record<string, unknown>).player_id ?? '');
-          if (pid) localStorage.setItem(OLD_PLAYER_ID_KEY, pid);
+          if (pid) writeCookie(OLD_PLAYER_ID_KEY, pid);
         } catch { /* ignore */ }
         markAuthenticated();
 
@@ -138,10 +139,10 @@ export async function refreshAuthenticatedSession(force = false): Promise<boolea
 
       const code = String(data.error_code ?? '');
       if (res.status === 401 || code === 'AUTH_EXPIRED' || code === 'AUTH_REQUIRED') {
+        // 只清 hint，不 dispatch session-cleared：避免 hydrate 期间的 refresh 失败
+        // 触发 authStore clearSession 导致刷新掉登录。让调用方（拦截器/hydrate）决定后续行为。
+        // token 确实无效时，由 socket.ts 的 WebSocket recoverSessionIfNeeded 触发 clearSession。
         clearAuthenticated();
-        try {
-          window.dispatchEvent(new CustomEvent('phrolova:session-cleared'));
-        } catch { /* ignore */ }
         return false;
       }
       // 服务端 500 / 网络异常 / 其他 → 抛给调用方
@@ -156,8 +157,8 @@ export async function refreshAuthenticatedSession(force = false): Promise<boolea
         const status = e.response?.status;
         const code = String((e.response?.data as Record<string, unknown> | undefined)?.error_code ?? '');
         if (status === 401 || code === 'AUTH_EXPIRED' || code === 'AUTH_REQUIRED') {
+          // 同上：只清 hint，不 dispatch session-cleared，避免刷新掉登录
           clearAuthenticated();
-          try { window.dispatchEvent(new CustomEvent('phrolova:session-cleared')); } catch { /* ignore */ }
           return false;
         }
       }

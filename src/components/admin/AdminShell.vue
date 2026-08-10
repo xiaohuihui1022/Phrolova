@@ -52,13 +52,15 @@ async function onLogout() {
 <template>
   <div class="ad-page">
     <header class="ad-top">
-      <button class="back-btn" @click="router.push('/')"><Icon icon="ph:arrow-left-duotone" /> BACK</button>
+      <button class="back-btn" @click="router.push('/')"><Icon icon="ph:arrow-left-duotone" /> 返回</button>
       <h1 class="ad-title">管理面板</h1>
       <div class="ad-top-right">
         <span v-if="adminUsername" class="ad-user-chip">
           <Icon icon="ph:user-circle-duotone" /> {{ adminUsername }}
         </span>
-        <button class="ad-logout-btn" @click="onLogout">登出</button>
+        <button class="ad-logout-btn" @click="onLogout">
+          <Icon icon="ph:sign-out-duotone" /> 登出
+        </button>
       </div>
     </header>
 
@@ -86,15 +88,19 @@ async function onLogout() {
           <span v-if="logs.length" class="ad-logs-count">{{ logs.length }}</span>
         </h2>
         <div class="ad-logs-actions">
-          <button v-if="showLogs" class="ad-logs-refresh" @click.stop="loadLogs" :disabled="logsLoading">
+          <button v-if="showLogs" class="ad-logs-refresh" @click.stop="loadLogs" :disabled="logsLoading" title="刷新日志">
             <Icon :icon="logsLoading ? 'ph:spinner-gap-bold' : 'ph:arrows-clockwise'" :class="{ 'ph-spin': logsLoading }" />
           </button>
-          <Icon :icon="showLogs ? 'ph:caret-up-duotone' : 'ph:caret-down-duotone'" class="ad-logs-toggle" />
+          <Icon icon="ph:caret-down-duotone" class="ad-logs-toggle" :class="{ 'ad-logs-toggle--open': showLogs }" />
         </div>
       </div>
       <div v-if="showLogs" class="ad-logs-body">
-        <p v-if="logsError" class="ad-logs-empty">{{ logsError }}</p>
-        <p v-else-if="!logs.length" class="ad-logs-empty">{{ logsLoading ? "加载中..." : "暂无日志" }}</p>
+        <p v-if="logsError" class="ad-logs-empty"><Icon icon="ph:warning-circle-duotone" /> {{ logsError }}</p>
+        <p v-else-if="!logs.length" class="ad-logs-empty">
+          <Icon v-if="logsLoading" icon="ph:spinner-gap-bold" class="ph-spin" />
+          <Icon v-else icon="ph:scroll-duotone" style="opacity: 0.5;" />
+          {{ logsLoading ? "加载中..." : "暂无日志" }}
+        </p>
         <div v-for="(e, i) in logs" :key="i" class="ad-log-entry" :class="`ad-log-${e.level.toLowerCase()}`">
           <span class="ad-log-time">{{ e.time }}</span>
           <span class="ad-log-level">{{ e.level }}</span>

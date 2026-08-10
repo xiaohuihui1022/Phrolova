@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, shallowRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
 
 import GlassHeader from "@/components/shared/GlassHeader.vue";
@@ -11,6 +11,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useMultiGameStore } from "@/stores/multiGame";
 import type { Difficulty, QuizType, TabOption } from "@/types";
 import { errMsg } from "@/api/client";
+import { fetchPoolStats, type PoolStatsResponse } from "@/api/stats";
 
 const authStore = useAuthStore();
 const multiGameStore = useMultiGameStore();
@@ -26,6 +27,7 @@ const config = reactive({
 const quizTypeTabs: TabOption[] = [
   { key: "resonator", label: "共鸣者", icon: "ph:user-duotone" },
   { key: "skeleton", label: "声骸", icon: "ph:ghost-duotone" },
+  { key: "global", label: "全局", icon: "ph:user-duotone", iconSecondary: "ph:ghost-duotone" },
 ];
 
 const bestOfTabs: TabOption[] = [
@@ -40,6 +42,9 @@ const difficultyTabs: TabOption[] = [
 ];
 
 const queueSummary = computed(() => {
+  if (config.quizType === "global") {
+    return "全局匹配 / BO3";
+  }
   if (config.quizType === "skeleton") {
     return `声骸 / ${config.difficulty === "easy" ? "简单" : "困难"} / BO${config.bestOf}`;
   }
@@ -47,13 +52,16 @@ const queueSummary = computed(() => {
 });
 
 const showRoomActiveModal = shallowRef(false);
+const showGlobalCreateErrorModal = shallowRef(false);
 
 function promptStillInRoom() { showRoomActiveModal.value = true; }
 function closeRoomActiveModal() { showRoomActiveModal.value = false; }
 function goToActiveRoom() { showRoomActiveModal.value = false; router.push("/multi/room"); }
+function closeGlobalCreateErrorModal() { showGlobalCreateErrorModal.value = false; }
 
 async function createRoom() {
   if (multiGameStore.roomState) { promptStillInRoom(); return; }
+  if (config.quizType === "global") { showGlobalCreateErrorModal.value = true; return; }
   // 共鸣者模式没有难度区分，统一强制为 'easy'，避免匹配时 difficulty 不同导致无法匹配
   const effectiveDifficulty = config.quizType === "skeleton" ? config.difficulty : "easy";
   try { await multiGameStore.createRoom(config.quizType, config.bestOf, effectiveDifficulty); }
@@ -69,7 +77,7 @@ async function joinRoom() {
 
 async function randomMatch() {
   if (multiGameStore.roomState) { promptStillInRoom(); return; }
-  // 共鸣者模式没有难度区分，统一强制为 'easy'
+  // 共鸣者和全局模式没有难度区分，统一强制为 'easy'
   const effectiveDifficulty = config.quizType === "skeleton" ? config.difficulty : "easy";
   // 按游戏规则文档：随机匹配固定 BO3 赛制
   try { await multiGameStore.joinQueue(config.quizType, effectiveDifficulty, 3); }
@@ -80,10 +88,55 @@ watch(() => multiGameStore.roomState?.roomCode, (roomCode) => {
   if (roomCode) router.push("/multi/room");
 });
 
+// ── 匹配池实时在线人数 ──
+// 每 8 秒轮询一次，仅在已登录且未进入队列/房间时拉取
+const poolStats = ref<PoolStatsResponse | null>(null);
+let poolStatsTimer: ReturnType<typeof setInterval> | null = null;
+
+async function refreshPoolStats() {
+  // 仅在未匹配、未在房间时拉取（减少不必要的请求）
+  if (!authStore.isAuthenticated || multiGameStore.inQueue || multiGameStore.roomState) return;
+  try {
+    poolStats.value = await fetchPoolStats();
+  } catch {
+    // 静默失败，不影响用户使用
+  }
+}
+
+function startPoolStatsPolling() {
+  if (poolStatsTimer !== null) return;
+  refreshPoolStats();
+  poolStatsTimer = setInterval(refreshPoolStats, 8000);
+}
+
+function stopPoolStatsPolling() {
+  if (poolStatsTimer !== null) {
+    clearInterval(poolStatsTimer);
+    poolStatsTimer = null;
+  }
+}
+
+// 进入队列或房间时停止轮询并清空显示
+watch(() => multiGameStore.inQueue, (inQueue) => {
+  if (inQueue) stopPoolStatsPolling();
+  else if (authStore.isAuthenticated) startPoolStatsPolling();
+});
+watch(() => multiGameStore.roomState, (roomState) => {
+  if (roomState) stopPoolStatsPolling();
+  else if (authStore.isAuthenticated && !multiGameStore.inQueue) startPoolStatsPolling();
+});
+
 onMounted(async () => {
   if (authStore.isAuthenticated) {
     await multiGameStore.resumeRoom().catch(() => undefined);
+    if (!multiGameStore.inQueue && !multiGameStore.roomState) {
+      startPoolStatsPolling();
+    }
   }
+});
+
+onUnmounted(() => {
+  stopPoolStatsPolling();
 });
 </script>
 
@@ -94,7 +147,7 @@ onMounted(async () => {
 
       <div v-if="!multiGameStore.inQueue" class="ml-config">
         <TabGroup :tabs="quizTypeTabs" :active-key="config.quizType" @select="config.quizType = $event as QuizType" />
-        <TabGroup :tabs="bestOfTabs" :active-key="String(config.bestOf)" @select="config.bestOf = Number($event)" />
+        <TabGroup v-if="config.quizType !== 'global'" :tabs="bestOfTabs" :active-key="String(config.bestOf)" @select="config.bestOf = Number($event)" />
         <TabGroup v-if="config.quizType === 'skeleton'" :tabs="difficultyTabs" :active-key="config.difficulty"
           @select="config.difficulty = $event as Difficulty" />
         <span class="ml-config-summary">{{ queueSummary }}</span>
@@ -146,8 +199,17 @@ onMounted(async () => {
           </div>
           <div class="ml-card-copy">
             <p class="ml-card-kicker">RANDOM MATCH</p>
-            <h2 class="ml-card-title">随机匹配</h2>
+            <h2 class="ml-card-title">
+              随机匹配
+              <span v-if="poolStats && !poolStats.degraded" class="ml-pool-chip" :title="`等待 ${poolStats.waiting} · 对局中 ${poolStats.in_match}`">
+                <span class="ml-pool-dot" aria-hidden="true"></span>
+                {{ poolStats.total }} 人在线
+              </span>
+            </h2>
             <p class="ml-card-desc">自动匹配在线玩家，固定 BO3 赛制，匹配成功即进入房间。</p>
+            <p v-if="poolStats && !poolStats.degraded" class="ml-pool-detail">
+              等待 {{ poolStats.waiting }} · 对局中 {{ poolStats.in_match }}
+            </p>
           </div>
           <div class="ml-btn-row">
             <button class="btn" @click="randomMatch">
@@ -195,7 +257,7 @@ onMounted(async () => {
       <footer v-if="!multiGameStore.inQueue" class="ml-foot">
         <span class="ml-foot-status">
           <span class="ml-foot-dot" :class="{ 'ml-foot-dot--on': authStore.isAuthenticated }"></span>
-          {{ authStore.isAuthenticated ? `已登录 · ${authStore.playerId}` : "未登录" }}
+          {{ authStore.isAuthenticated ? `已登录 · ${authStore.playerId}${authStore.dbId != null ? ` #${authStore.dbId}` : ''}` : "未登录" }}
         </span>
         <span class="ml-foot-hint">选择一个模式开始</span>
       </footer>
@@ -217,6 +279,20 @@ onMounted(async () => {
       </div>
     </ModalOverlay>
 
+    <!-- 全局模式不允许创建房间弹窗 -->
+    <ModalOverlay v-if="showGlobalCreateErrorModal" panel-class="ml-room-modal" max-width="380px" no-close
+      @close="closeGlobalCreateErrorModal">
+      <div class="ml-room-modal-icon">
+        <Icon icon="ph:warning-circle-duotone" aria-hidden="true" />
+      </div>
+      <p class="ml-room-modal-kicker">NOTICE</p>
+      <h2 class="ml-room-modal-title">全局模式仅限随机匹配</h2>
+      <p class="ml-room-modal-desc">全局匹配模式会为你匹配共鸣者或声骸的任意对手，无法创建指定类型的房间。请使用"随机匹配"按钮开始对局。</p>
+      <div class="ml-room-modal-actions">
+        <button class="btn" @click="closeGlobalCreateErrorModal">知道了</button>
+      </div>
+    </ModalOverlay>
+
     <!-- 随机匹配成功弹窗：弥补从匹配成功到进入房间期间的视觉空白 -->
     <ModalOverlay v-if="multiGameStore.matched" panel-class="ml-matched-modal" max-width="360px" no-close
       @close="() => { /* 自动关闭，不可手动关闭 */ }">
@@ -228,6 +304,34 @@ onMounted(async () => {
       <p class="ml-matched-desc">已找到对手，正在进入房间...</p>
       <div class="ml-matched-spinner" aria-hidden="true">
         <div v-for="i in 3" :key="i" class="ml-matched-ring" :style="{ animationDelay: `${(i - 1) * 0.2}s` }"></div>
+      </div>
+    </ModalOverlay>
+
+    <!-- 创建房间弹窗：弥补从点击创建到进入房间页面的延迟 -->
+    <ModalOverlay v-if="multiGameStore.creatingRoom" panel-class="ml-creating-modal" max-width="360px" no-close
+      @close="() => { /* 自动关闭，不可手动关闭 */ }">
+      <div class="ml-creating-icon">
+        <Icon icon="ph:sparkle-duotone" aria-hidden="true" />
+      </div>
+      <p class="ml-creating-kicker">CREATING</p>
+      <h2 class="ml-creating-title">创建成功</h2>
+      <p class="ml-creating-desc">房间已创建，正在进入房间...</p>
+      <div class="ml-creating-spinner" aria-hidden="true">
+        <div v-for="i in 3" :key="i" class="ml-creating-ring" :style="{ animationDelay: `${(i - 1) * 0.2}s` }"></div>
+      </div>
+    </ModalOverlay>
+
+    <!-- 加入房间弹窗：弥补从点击加入到进入房间页面的延迟 -->
+    <ModalOverlay v-if="multiGameStore.joiningRoom" panel-class="ml-joining-modal" max-width="360px" no-close
+      @close="() => { /* 自动关闭，不可手动关闭 */ }">
+      <div class="ml-joining-icon">
+        <Icon icon="ph:sign-in-duotone" aria-hidden="true" />
+      </div>
+      <p class="ml-joining-kicker">JOINING</p>
+      <h2 class="ml-joining-title">加入成功</h2>
+      <p class="ml-joining-desc">已加入房间，正在进入房间...</p>
+      <div class="ml-joining-spinner" aria-hidden="true">
+        <div v-for="i in 3" :key="i" class="ml-joining-ring" :style="{ animationDelay: `${(i - 1) * 0.2}s` }"></div>
       </div>
     </ModalOverlay>
   </div>

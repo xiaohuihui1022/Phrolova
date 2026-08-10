@@ -7,6 +7,7 @@ import {
   invokeAdminAuthExpired,
 } from './authSession';
 import { useToast } from '@/composables/useToast';
+import { readCookie } from '@/composables/useStorage';
 
 // NOTE: 循环依赖安全：client.ts → authSession.ts（✅ 单向，authSession 不回 import client）
 //       useToast 是 composable 单例，值类型安全
@@ -18,7 +19,7 @@ const isAxiosError = axios.isAxiosError.bind(axios);
 
 const toast = useToast();
 
-/** 从 localStorage 取玩家当前凭证（与 authStore 的 useLocalStorage key 对齐） */
+/** 从 Cookie 取玩家当前凭证（与 authStore 的 useCookieStorage key 对齐） */
 const PLAYER_ID_KEY = 'phrolova_player_id';
 const PLAYER_TOKEN_KEY = 'phrolova_player_token';
 const ADMIN_TOKEN_KEY = 'admin_token';
@@ -59,8 +60,8 @@ api.interceptors.request.use((config) => {
 
   if (hasAuthHint()) {
     try {
-      const pid = localStorage.getItem(PLAYER_ID_KEY) ?? '';
-      const tok = localStorage.getItem(PLAYER_TOKEN_KEY) ?? '';
+      const pid = readCookie(PLAYER_ID_KEY) ?? '';
+      const tok = readCookie(PLAYER_TOKEN_KEY) ?? '';
       if (pid && tok) {
         config.headers.set('X-Player-Id', pid);
         config.headers.set('X-Player-Token', tok);
@@ -73,7 +74,7 @@ api.interceptors.request.use((config) => {
 
   if (hasAdminHint()) {
     try {
-      const at = localStorage.getItem(ADMIN_TOKEN_KEY) ?? '';
+      const at = readCookie(ADMIN_TOKEN_KEY) ?? '';
       if (at) config.headers.set('X-Admin-Token', at);
     } catch { /* ignore */ }
   }
@@ -115,20 +116,41 @@ api.interceptors.response.use(
       hasAuthHint()
     ) {
       config._authRetried = true;
+      let refreshNetworkFailed = false;
       try {
         const ok = await refreshAuthenticatedSession(false);
         if (ok) {
           // refresh 成功 → 重放原请求
-          // 注意：refreshAuthenticatedSession 已经把新 token 写入 localStorage，
-          //       而 api.request 会再次走请求拦截器，重新从 localStorage 读 header，
+          // 注意：refreshAuthenticatedSession 已经把新 token 写入 Cookie，
+          //       而 api.request 会再次走请求拦截器，重新从 Cookie 读 header，
           //       所以这里不用手动更新 config.headers
           return api.request(config as any);
         }
-        // refresh 失败：清 hint（authSession 已清），把原错误抛给业务层
+        // refresh 返回 false = 后端明确 401（认证失败）→ 清 hint，抛原 401
         clearAuthenticated();
       } catch (refreshErr) {
-        // refresh 过程抛非 401 错误 → 当作 401 处理，不抛出 refresh 自身的错误
-        clearAuthenticated();
+        // refresh 抛错：区分网络错误 vs 认证错误
+        // 网络错误（无 response）不应判定为认证失败，否则刷新页面时瞬断会导致掉登录
+        const rStatus = (refreshErr as any)?.response?.status ?? 0;
+        const rIsNetwork = rStatus === 0 || (refreshErr as any)?.code === 'ERR_NETWORK';
+        if (rIsNetwork) {
+          refreshNetworkFailed = true;
+          // 不清 hint，保留登录态，让用户网络恢复后重试
+        } else {
+          clearAuthenticated();
+        }
+      }
+      if (refreshNetworkFailed) {
+        // refresh 因网络失败：抛网络错误而非原 401，避免 hydrate 误判为认证失败清会话
+        const wrapped = new AxiosError(
+          'NETWORK_ERROR',
+          AxiosError.ERR_NETWORK,
+          error.config,
+          error.request,
+          undefined,
+        );
+        (wrapped as any).error_code = 'NETWORK_ERROR';
+        throw wrapped;
       }
       throw error;
     }

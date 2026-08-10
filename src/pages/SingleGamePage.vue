@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef } from "vue";
+import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useRouter } from "vue-router";
 import gsap from "gsap";
 
@@ -17,7 +17,35 @@ const dictionaryStore = useDictionaryStore();
 const singleGameStore = useSingleGameStore();
 const router = useRouter();
 const guessName = shallowRef("");
-const guessInputRef = useTemplateRef<{ focus: () => void }>("guessInput");
+const guessInputRef = useTemplateRef<{ focus: () => void; resolveFinalName: () => string }>("guessInput");
+
+/** 单人模式猜测记录的滚动容器 */
+const stageBodyRef = ref<HTMLElement | null>(null);
+
+/** 滚到最新一条猜测；同时兼容内层 .guess-table-shell 的 overflow:auto */
+function scrollStageToBottom(el: HTMLElement | null) {
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+  const innerShell = el.querySelector<HTMLElement>(".guess-table-shell");
+  if (innerShell) innerShell.scrollTop = innerShell.scrollHeight;
+}
+
+/** 每次提交新猜测后自动滚到底部，和多人模式保持一致体验 */
+let _lastGuessLen = 0;
+watch(
+  () => singleGameStore.guessHistory.length,
+  (len) => {
+    if (len > _lastGuessLen) {
+      nextTick(() => {
+        requestAnimationFrame(() => {
+          scrollStageToBottom(stageBodyRef.value);
+          setTimeout(() => scrollStageToBottom(stageBodyRef.value), 60);
+        });
+      });
+    }
+    _lastGuessLen = len;
+  },
+);
 
 const currentNames = computed(() =>
   singleGameStore.quizType === "skeleton" ? dictionaryStore.skeletonNames : dictionaryStore.resonatorNames,
@@ -103,16 +131,10 @@ async function submitGuess(finalName?: string) {
   }
 }
 
-/** 点击提交按钮：自动补全到第一个匹配项再提交，与按 Enter 键效果一致。 */
+/** 点击提交按钮：使用组件内部逻辑 resolveFinalName 获取最终名称（考虑 activeIndex）。 */
 function handleClickSubmit() {
-  const keyword = guessName.value.trim().toLowerCase();
-  if (keyword) {
-    const match = currentNames.value.find((n) => n.name.toLowerCase().includes(keyword));
-    if (match) {
-      guessName.value = match.name;
-    }
-  }
-  submitGuess(guessName.value);
+  const finalName = guessInputRef.value?.resolveFinalName() ?? guessName.value;
+  submitGuess(finalName);
 }
 
 onMounted(async () => {
@@ -168,7 +190,7 @@ onMounted(async () => {
           <FeedbackLegend v-if="hasGuessHistory" />
         </div>
 
-        <div class="stage-body" :class="{ 'game-stage--empty': !hasGuessHistory }">
+        <div ref="stageBodyRef" class="stage-body" :class="{ 'game-stage--empty': !hasGuessHistory }">
           <div v-if="!hasGuessHistory" class="sg-empty-state">
             <div class="sg-empty-glyph"><Icon icon="ph:target-duotone" aria-hidden="true" /></div>
             <h2 class="stage-title">{{ stagePromptTitle }}</h2>

@@ -42,6 +42,22 @@
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   flex-shrink: 0;
   letter-spacing: 0.02em;
+  overflow: hidden;
+}
+
+.ack-item-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+.ack-item-avatar-letter {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
 }
 
 .ack-item-body { flex: 1; min-width: 0; }

@@ -14,6 +14,7 @@ const CATEGORY_META: Record<string, { label: string; icon: string; color: string
   bug: { label: "Bug 反馈", icon: "ph:bug-duotone", color: "var(--danger)" },
   feature: { label: "功能建议", icon: "ph:lightbulb-duotone", color: "var(--gold)" },
   support: { label: "技术支持", icon: "ph:heart-duotone", color: "var(--accent)" },
+  dev: { label: "开发人员", icon: "ph:code-duotone", color: "var(--accent-3)" },
   other: { label: "其他贡献", icon: "ph:star-duotone", color: "var(--accent-2)" },
 };
 
@@ -31,7 +32,7 @@ const grouped = computed(() => {
   return result;
 });
 
-const categoryOrder = ["bug", "feature", "support", "other"];
+const categoryOrder = ["dev", "bug", "feature", "support", "other"];
 
 async function loadList() {
   loading.value = true;
@@ -40,6 +41,13 @@ async function loadList() {
     list.value = data.list ?? [];
   } catch { /* silent */ }
   finally { loading.value = false; }
+}
+
+/** 头像图片加载失败时清空 avatar，自动回退到首字母占位 */
+function onAvatarError(item: AcknowledgementItem, e: Event) {
+  item.avatar = null;
+  const img = e.target as HTMLImageElement;
+  if (img) img.style.display = "none";
 }
 
 onMounted(loadList);
@@ -85,7 +93,17 @@ onMounted(loadList);
 
           <ul class="ack-list">
             <li v-for="item in grouped[cat]" :key="item.id" class="ack-item">
-              <div class="ack-item-avatar">{{ item.player_id.charAt(0)?.toUpperCase() }}</div>
+              <div class="ack-item-avatar">
+                <img
+                  v-if="item.avatar"
+                  :src="item.avatar"
+                  :alt="item.player_id"
+                  class="ack-item-avatar-img"
+                  loading="lazy"
+                  @error="onAvatarError(item, $event)"
+                />
+                <span v-else class="ack-item-avatar-letter">{{ item.player_id.charAt(0)?.toUpperCase() }}</span>
+              </div>
               <div class="ack-item-body">
                 <div class="ack-item-name">{{ item.player_id }}</div>
                 <p v-if="item.description" class="ack-item-desc">{{ item.description }}</p>

@@ -164,20 +164,27 @@ const totalEdited = computed(() => tableEdits.value.size);
 <template>
   <AdminShell>
     <section class="ad-card">
-      <h2 class="ad-card-title"><Icon icon="ph:table-duotone" class="ad-card-icon" /> 数据表格</h2>
-      <p class="ad-card-desc">查看和编辑本地数据库中的所有数据，点击单元格直接编辑，选中行后同步修改</p>
-      <div class="ad-btn-row">
-        <button class="btn" :disabled="loadingLocal" @click="loadLocalData">
-          <Icon v-if="loadingLocal" icon="ph:spinner-gap-bold" class="ph-spin" />
-          {{ loadingLocal ? "加载中..." : "加载数据" }}
-        </button>
+      <div class="ad-card-head">
+        <div class="ad-card-head-left">
+          <h2 class="ad-card-title"><Icon icon="ph:table-duotone" class="ad-card-icon" /> 数据表格</h2>
+          <p class="ad-card-desc">查看和编辑本地数据库中的所有数据，点击单元格直接编辑，选中行后同步修改</p>
+        </div>
+        <div class="ad-card-head-right">
+          <button class="btn" :disabled="loadingLocal" @click="loadLocalData">
+            <Icon v-if="loadingLocal" icon="ph:spinner-gap-bold" class="ph-spin" />
+            <Icon v-else icon="ph:database-duotone" />
+            {{ loadingLocal ? "加载中..." : "加载数据" }}
+          </button>
+        </div>
       </div>
     </section>
 
     <template v-if="localData">
       <template v-for="kind in (['characters', 'echoes'] as const)" :key="kind">
         <section v-if="localData[kind]?.length" class="ad-card">
-          <h3 class="ad-card-title">{{ tableTitle(kind) }} — {{ localData[kind].length }} 条</h3>
+          <div class="ad-card-head">
+            <h3 class="ad-card-title">{{ tableTitle(kind) }} <span class="ad-count-pill">{{ localData[kind].length }}</span></h3>
+          </div>
           <div class="ad-table-wrap">
             <table class="ad-table"><thead><tr>
               <th class="ad-th-sel">同步</th><th>名称</th>
@@ -234,9 +241,13 @@ const totalEdited = computed(() => tableEdits.value.size);
         <div v-if="syncError" class="ad-error">{{ syncError }}</div>
         <div class="ad-btn-row">
           <button class="btn" :disabled="syncing || !tableRowsSelected.size || !totalEdited" @click="syncTable">
+            <Icon v-if="syncing" icon="ph:spinner-gap-bold" class="ph-spin" />
+            <Icon v-else icon="ph:cloud-arrow-up-duotone" />
             {{ syncing ? "同步中..." : `同步修改(${tableRowsSelected.size}项 · ${totalEdited}处编辑)` }}
           </button>
-          <button v-if="tableRowsSelected.size || totalEdited" class="btn-ghost" @click="clearAll">取消全部</button>
+          <button v-if="tableRowsSelected.size || totalEdited" class="btn-ghost btn-sm" @click="clearAll">
+            <Icon icon="ph:x-duotone" /> 取消全部
+          </button>
         </div>
       </section>
     </template>

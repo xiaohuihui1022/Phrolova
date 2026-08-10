@@ -5,6 +5,12 @@
 .home-title-block { position: relative; z-index: 3; text-align: center; padding: 1rem 0 0; }
 .home-title { margin: 0; font-family: 'Rajdhani', sans-serif; font-size: clamp(2rem, 1.6rem + 2vw, 3.2rem); font-weight: 700; letter-spacing: 0.12em; color: var(--gold); }
 .home-subtitle { margin: 0.2rem 0 0; font-size: clamp(0.85rem, 0.7rem + 0.4vw, 1.05rem); color: var(--text-faint); letter-spacing: 0.2em; }
+.home-online-badge { display: inline-flex; align-items: center; gap: 0.5rem; margin-top: 0.85rem; padding: 0.3rem 0.85rem 0.3rem 0.55rem; border: 1px solid var(--line-soft); border-radius: 999px; background: color-mix(in oklab, var(--surface-panel-strong) 60%, transparent); backdrop-filter: blur(6px); }
+.home-online-dot { position: relative; display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; }
+.home-online-dot--active { background: var(--color-success); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-success) 20%, transparent); }
+.home-online-dot--active::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid color-mix(in oklab, var(--color-success) 40%, transparent); animation: homeOnlinePulse 1.8s ease-out infinite; }
+@keyframes homeOnlinePulse { 0% { transform: scale(0.8); opacity: 0.8; } 100% { transform: scale(1.6); opacity: 0; } }
+.home-online-text { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.1em; color: var(--text-sub); }
 
 #start-menu { position: relative; display: flex; flex-direction: column; flex: 1; overflow: hidden; border: 1px solid var(--line-soft); background: radial-gradient(circle at 75% 50%, var(--shell-bg-deep) 0%, var(--shell-bg) 50%), radial-gradient(circle at 20% 80%, color-mix(in oklab, var(--gold) 6%, transparent) 0%, transparent 40%); }
 #start-menu::before { content: ""; position: absolute; inset: 0; z-index: 0; background-image: linear-gradient(color-mix(in oklab, var(--gold) 4%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in oklab, var(--gold) 4%, transparent) 1px, transparent 1px); background-size: 48px 48px; mask-image: radial-gradient(ellipse at 30% 50%, black 0%, transparent 70%); -webkit-mask-image: radial-gradient(ellipse at 30% 50%, black 0%, transparent 70%); pointer-events: none; }
@@ -51,6 +57,7 @@
 .home-identity-header { display: flex; align-items: center; gap: 0.7rem; }
 .home-identity-avatar { display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border: 1px solid var(--gold); border-radius: 6px; background: color-mix(in oklab, var(--gold) 14%, var(--shell-bg-deep)); color: var(--gold); font-size: 1.1rem; font-weight: 900; }
 .home-identity-name { font-size: 1.05rem; font-weight: 900; letter-spacing: 0.16em; }
+.home-identity-dbid { font-size: 0.78rem; font-weight: 600; color: var(--text-faint); letter-spacing: 0.08em; }
 .home-identity-links { display: flex; gap: 0.5rem; }
 .home-identity-stats { display: flex; gap: 1.2rem; }
 .home-identity-stat { display: flex; flex-direction: column; }
@@ -105,6 +112,8 @@
 @media (max-width: 960px) {
   .home-title { font-size: 2rem; }
   .home-subtitle { font-size: 0.75rem; }
+  .home-online-badge { margin-top: 0.6rem; padding: 0.22rem 0.7rem 0.22rem 0.45rem; }
+  .home-online-text { font-size: 0.72rem; }
   #start-menu { flex-direction: column; justify-content: center; background: var(--shell-bg-deep); }
   .home-stage { display: flex; flex-direction: column; justify-content: center; }
   .home-portrait { position: absolute; inset: 0; width: 100%; opacity: 0.15; z-index: 0; display: flex; align-items: center; justify-content: center; }
@@ -173,3 +182,34 @@
   .announce-modal { max-width: 94vw; padding: 1.2rem 1rem; }
   .announce-title { font-size: 1.1rem; }
 }
+
+/* ── Cookie 同意提示（首页右下角，首次访问展示） ── */
+.cookie-consent { position: fixed; right: clamp(0.8rem, 2vw, 1.6rem); bottom: clamp(0.8rem, 2vw, 1.6rem); z-index: 900; display: flex; gap: 0.85rem; width: min(360px, calc(100vw - 1.6rem)); padding: 1rem 1.05rem; border: 1px solid color-mix(in oklab, var(--gold) 35%, transparent); border-radius: 12px; background: linear-gradient(180deg, var(--surface-panel-strong), var(--surface-panel)); backdrop-filter: blur(10px); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); }
+.cookie-consent-icon { flex-shrink: 0; font-size: 1.8rem; color: var(--gold); line-height: 1; }
+.cookie-consent-body { flex: 1; min-width: 0; }
+.cookie-consent-title { margin: 0 0 0.35rem; font-size: 0.92rem; font-weight: 700; letter-spacing: 0.12em; color: var(--text-main); }
+.cookie-consent-desc { margin: 0 0 0.75rem; font-size: 0.78rem; line-height: 1.6; color: var(--text-sub); }
+.cookie-consent-actions { display: flex; gap: 0.5rem; }
+.cookie-consent-btn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.45rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600; letter-spacing: 0.08em; cursor: pointer; transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease; }
+.cookie-consent-btn:active { transform: translateY(0); }
+.cookie-consent-btn--primary { border: 1px solid color-mix(in oklab, var(--gold) 50%, transparent); background: color-mix(in oklab, var(--gold) 18%, var(--surface-panel-strong)); color: var(--gold); }
+.cookie-consent-btn--primary:hover { background: color-mix(in oklab, var(--gold) 28%, var(--surface-panel-strong)); color: var(--text-main); }
+.cookie-consent-btn--ghost { border: 1px solid var(--line-strong); background: transparent; color: var(--text-faint); }
+.cookie-consent-btn--ghost:hover { color: var(--text-sub); border-color: var(--text-faint); }
+
+.cookie-slide-enter-active { transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.25, 1, 0.5, 1); }
+.cookie-slide-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
+.cookie-slide-enter-from { opacity: 0; transform: translateY(24px) translateX(12px); }
+.cookie-slide-leave-to { opacity: 0; transform: translateY(12px); }
+
+@media (max-width: 540px) {
+  .cookie-consent { width: calc(100vw - 1.2rem); right: 0.6rem; bottom: 0.6rem; padding: 0.85rem 0.9rem; }
+  .cookie-consent-desc { font-size: 0.74rem; }
+  .cookie-consent-btn { padding: 0.4rem 0.85rem; font-size: 0.78rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cookie-slide-enter-active, .cookie-slide-leave-active { transition: opacity 0.2s ease; }
+  .cookie-slide-enter-from, .cookie-slide-leave-to { transform: none; }
+}
+

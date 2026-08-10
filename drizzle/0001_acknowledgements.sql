@@ -12,3 +12,9 @@ CREATE TABLE IF NOT EXISTS "acknowledgements" (
 CREATE INDEX IF NOT EXISTS "idx_acknowledgements_sort" ON "acknowledgements" ("sort_order" ASC, "id" ASC);
 
 --> drizzle statement: statement-end
+
+-- 致谢名单表新增 avatar 字段（可为空）
+
+ALTER TABLE "acknowledgements" ADD COLUMN "avatar" text;
+
+--> drizzle statement: statement-end

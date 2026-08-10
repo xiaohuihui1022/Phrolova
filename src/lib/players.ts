@@ -8,6 +8,7 @@ import type { QuizType } from './compare';
 export function publicPlayer(player: Player | undefined | null) {
   if (!player) return null;
   return {
+    id: player.id,
     player_id: player.playerId,
     score: player.score,
     wins: player.wins,

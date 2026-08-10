@@ -1,19 +1,21 @@
 import { computed, reactive, shallowRef, watch } from "vue";
 import { defineStore } from "pinia";
 
-import { useLocalStorage, removeLocalStorage } from "@/composables/useStorage";
+import { useCookieStorage, removeCookieStorage } from "@/composables/useStorage";
 import type { AuthResponse } from "@/types";
 import * as api from "@/api";
 import { markAuthenticated, clearAuthenticated } from "@/api/authSession";
 import { errMsg } from "@/api/client";
 
 export const useAuthStore = defineStore("auth", () => {
-  const playerId = useLocalStorage("phrolova_player_id", "");
-  const token = useLocalStorage("phrolova_player_token", "");
-  const loggedIn = useLocalStorage("phrolova_logged_in", false);
+  // 登录态持久化至 Cookie（替代 localStorage），30 天有效期，实际登录态由后端 token 校验/轮换控制
+  const playerId = useCookieStorage("phrolova_player_id", "");
+  const token = useCookieStorage("phrolova_player_token", "");
+  const loggedIn = useCookieStorage("phrolova_logged_in", false);
 
   const loading = shallowRef(false);
   const error = shallowRef("");
+  const dbId = shallowRef<number | null>(null);
   const stats = reactive({
     score: 0,
     wins: 0,
@@ -59,6 +61,7 @@ export const useAuthStore = defineStore("auth", () => {
   function applyPlayer(player?: AuthResponse["player"]) {
     if (!player) return;
     playerId.value = player.player_id;
+    dbId.value = player.id ?? null;
     stats.score = player.score;
     stats.wins = player.wins;
     stats.matches = player.matches;
@@ -67,20 +70,29 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   function clearSession() {
-    playerId.value = "";
-    token.value = "";
-    loggedIn.value = false;
-    stats.score = 0;
-    stats.wins = 0;
-    stats.matches = 0;
-    stats.single_resonator_score = 0;
-    stats.single_skeleton_score = 0;
-    removeLocalStorage("phrolova_player_id");
-    removeLocalStorage("phrolova_player_token");
-    removeLocalStorage("phrolova_logged_in");
-    _hydrated = false;
-    // 让 refresh/socket 侧感知到清态（已由 watch 同步 clearAuthenticated，这里双保险）
-    clearAuthenticated();
+    // 防止 session-cleared 事件回调重入导致竞态（watch sync 写空值 → removeCookie → 又被事件触发）
+    if (_clearing) return;
+    _clearing = true;
+    try {
+      playerId.value = "";
+      token.value = "";
+      loggedIn.value = false;
+      dbId.value = null;
+      stats.score = 0;
+      stats.wins = 0;
+      stats.matches = 0;
+      stats.single_resonator_score = 0;
+      stats.single_skeleton_score = 0;
+      // writeCookieValue 对空值/false 已自动删除 cookie，这里显式删除作双保险
+      removeCookieStorage("phrolova_player_id");
+      removeCookieStorage("phrolova_player_token");
+      removeCookieStorage("phrolova_logged_in");
+      _hydrated = false;
+      // 让 refresh/socket 侧感知到清态（已由 watch 同步 clearAuthenticated，这里双保险）
+      clearAuthenticated();
+    } finally {
+      _clearing = false;
+    }
   }
 
   async function refreshPlayer() {
@@ -90,6 +102,7 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   let _hydrated = false;
+  let _clearing = false;
 
   async function hydrate() {
     if (!loggedIn.value || !playerId.value) {
@@ -103,18 +116,11 @@ export const useAuthStore = defineStore("auth", () => {
       error.value = "";
       _hydrated = true;
     } catch (reason) {
-      // 仅认证类错误（401 且 refresh 也失败）才清会话；
-      // 网络/服务器等瞬态错误不清会话，避免用户被迫重新登录
-      const err = reason as { response?: { status?: number }; error_code?: string };
-      const isAuthError = err?.response?.status === 401 ||
-        err?.error_code === 'AUTH_EXPIRED' ||
-        err?.error_code === 'AUTH_REQUIRED';
-      if (isAuthError) {
-        clearSession();
-        error.value = errMsg(reason) || "登录态已失效，请重新登录";
-      } else {
-        error.value = errMsg(reason) || "网络异常，稍后重试";
-      }
+      // hydrate 失败时不清 session：避免并发 refresh 竞态（多请求同时 401 触发多次 refresh 轮换 token）
+      // 或瞬态故障（D1 不可用、网络抖动）导致刷新页面就掉登录。
+      // 保留 cookie/ref 登录态，后续 API 请求通过拦截器自动处理 token 过期（refresh + 重放）。
+      // 若 token 确实无效，用户下次主动操作时由 socket.ts 的 session-cleared 事件触发 clearSession。
+      error.value = errMsg(reason) || "网络异常，稍后重试";
     }
   }
 
@@ -208,6 +214,7 @@ export const useAuthStore = defineStore("auth", () => {
     loading,
     error,
     stats,
+    dbId,
     isAuthenticated,
     hydrate,
     login,

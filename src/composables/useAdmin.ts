@@ -8,6 +8,7 @@ import {
 } from "@/api/authSession";
 import { errMsg } from "@/api/client";
 import { useToast } from "@/composables/useToast";
+import { readCookie, writeCookie, removeCookie } from "@/composables/useStorage";
 
 const TOKEN_KEY = "admin_token";
 
@@ -37,7 +38,7 @@ export function isAdminTokenExpired(token: string | null): boolean {
   return Date.now() >= (p.expiry + 60) * 1000;
 }
 
-const adminToken = shallowRef<string | null>(localStorage.getItem(TOKEN_KEY));
+const adminToken = shallowRef<string | null>(readCookie(TOKEN_KEY));
 const authLoading = ref(false);
 const authError = ref("");
 
@@ -50,10 +51,10 @@ const toast = useToast();
 
 export function setAdminToken(token: string | null) {
   if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
+    writeCookie(TOKEN_KEY, token);
     markAdmin();
   } else {
-    localStorage.removeItem(TOKEN_KEY);
+    removeCookie(TOKEN_KEY);
     clearAdmin();
   }
   adminToken.value = token;
@@ -90,7 +91,7 @@ registerAdminAuthExpiredCallback(onAdminAuthExpired);
  *             业务层不再拼 headers。致谢页面已改签名，老调用方迁移完可删。
  */
 export function adminHeaders(): Record<string, string> {
-  const t = adminToken.value ?? localStorage.getItem(TOKEN_KEY) ?? "";
+  const t = adminToken.value ?? readCookie(TOKEN_KEY) ?? "";
   return { "X-Admin-Token": t };
 }
 
@@ -127,7 +128,7 @@ export async function doAdminLogin(): Promise<boolean> {
 
 export async function doAdminLogout() {
   try {
-    const t = adminToken.value ?? localStorage.getItem(TOKEN_KEY) ?? "";
+    const t = adminToken.value ?? readCookie(TOKEN_KEY) ?? "";
     await axios.request({
       method: "POST",
       url: "/admin/logout",

@@ -2,6 +2,7 @@ import axios from 'axios';
 import { hasAuthHint, clearAuthenticated } from './authSession';
 import { errMsg } from './client';
 import { useToast } from '@/composables/useToast';
+import { readCookie } from '@/composables/useStorage';
 
 const PLAYER_ID_KEY = 'phrolova_player_id';
 const PLAYER_TOKEN_KEY = 'phrolova_player_token';
@@ -31,8 +32,8 @@ export function initializeIdentity(): Promise<void> {
       if (hasAuthHint()) {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         try {
-          const pid = localStorage.getItem(PLAYER_ID_KEY) ?? '';
-          const tok = localStorage.getItem(PLAYER_TOKEN_KEY) ?? '';
+          const pid = readCookie(PLAYER_ID_KEY) ?? '';
+          const tok = readCookie(PLAYER_TOKEN_KEY) ?? '';
           if (pid && tok) {
             headers['X-Player-Id'] = pid;
             headers['X-Player-Token'] = tok;

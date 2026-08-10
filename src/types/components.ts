@@ -16,6 +16,7 @@ export interface TabOption {
   key: string;
   label: string;
   icon?: string;
+  iconSecondary?: string;
 }
 
 export interface TabGroupProps {

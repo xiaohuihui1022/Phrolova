@@ -22,7 +22,7 @@ async function handleSubmit() {
 <template>
   <div class="ad-page ad-login-page">
     <header class="ad-top">
-      <button class="back-btn" @click="router.push('/')"><Icon icon="ph:arrow-left-duotone" /> BACK</button>
+      <button class="back-btn" @click="router.push('/')"><Icon icon="ph:arrow-left-duotone" /> 返回</button>
       <div class="ad-top-right" />
     </header>
 

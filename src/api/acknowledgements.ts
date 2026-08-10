@@ -5,6 +5,7 @@ export interface AcknowledgementItem {
   player_id: string;
   category: string;
   description: string;
+  avatar: string | null;
   sort_order: number;
   created_at: string | null;
 }
@@ -27,14 +28,14 @@ export function adminFetchAcknowledgements() {
 }
 
 export function adminAddAcknowledgement(
-  payload: { player_id: string; category: string; description: string; sort_order: number },
+  payload: { player_id: string; category: string; description: string; avatar?: string | null; sort_order: number },
 ) {
   return api.post<{ status: string; id: number }>("/admin/acknowledgements", payload) as Promise<{ status: string; id: number }>;
 }
 
 export function adminUpdateAcknowledgement(
   id: number,
-  payload: Partial<{ player_id: string; category: string; description: string; sort_order: number }>,
+  payload: Partial<{ player_id: string; category: string; description: string; avatar: string | null; sort_order: number }>,
 ) {
   return api.put<{ status: string }>(`/admin/acknowledgements/${id}`, payload) as Promise<{ status: string }>;
 }

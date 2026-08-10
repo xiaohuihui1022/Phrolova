@@ -20,6 +20,12 @@ interface QueueEntry {
   connected: boolean;
 }
 
+// ── 活跃对局记录（用于统计匹配池在线人数） ──
+interface ActiveRoom {
+  playerCount: number;
+  createdAt: number;
+}
+
 // ── WebSocket 附件接口 ──
 interface MatchmakerWsAttachment {
   playerId: string;
@@ -31,6 +37,8 @@ export class MatchmakerObject extends DurableObject {
   protected env: Env;
   private queue: QueueEntry[] = [];
   private connections: Map<string, WebSocket> = new Map();
+  // 活跃随机匹配对局：roomCode → { playerCount, createdAt }
+  private activeRooms: Map<string, ActiveRoom> = new Map();
   private matchTimer: number | null = null;
   private _tickTimer: number | null = null;
 
@@ -64,6 +72,19 @@ export class MatchmakerObject extends DurableObject {
             });
             console.log('[MatchmakerDO] restored queue:', this.queue.map(e => `${e.playerId}(${e.quizType}/${e.difficulty}/BO${e.bestOf}) connected=${e.connected}`).join(', '));
           }
+          // 恢复活跃对局记录
+          if (Array.isArray(data.activeRooms)) {
+            const now = Date.now();
+            const MAX_ROOM_AGE = 30 * 60 * 1000;
+            for (const r of data.activeRooms as Array<[string, ActiveRoom]>) {
+              if (r && typeof r[0] === 'string' && r[1] && now - (r[1].createdAt || 0) < MAX_ROOM_AGE) {
+                this.activeRooms.set(r[0], { playerCount: r[1].playerCount || 2, createdAt: r[1].createdAt || now });
+              }
+            }
+            if (this.activeRooms.size > 0) {
+              console.log(`[MatchmakerDO] restored activeRooms: ${this.activeRooms.size} rooms`);
+            }
+          }
         } catch (e) { console.warn('[MatchmakerDO] restore failed:', e); }
       }
     });
@@ -87,6 +108,18 @@ export class MatchmakerObject extends DurableObject {
           return false;
         });
         if (this.queue.length !== beforeLen) this.persistState();
+
+        // 清理超时活跃对局记录（超过 30 分钟视为已失效，修正 DO 驱逐导致的计数漂移）
+        const MAX_ROOM_AGE = 30 * 60 * 1000;
+        let roomsChanged = false;
+        for (const [code, info] of this.activeRooms) {
+          if (now - info.createdAt > MAX_ROOM_AGE) {
+            console.log(`[MatchmakerDO.tick] remove stale active room: ${code}`);
+            this.activeRooms.delete(code);
+            roomsChanged = true;
+          }
+        }
+        if (roomsChanged) this.persistState();
 
         if (this.queue.filter(e => e.connected).length >= 2) {
           this.tryMatch();
@@ -164,8 +197,14 @@ export class MatchmakerObject extends DurableObject {
       }
 
       if (request.method === 'GET') {
+        const waitingPlayers = this.queue.filter(e => e.connected).length;
+        const activeMatchPlayers = Array.from(this.activeRooms.values())
+          .reduce((sum, r) => sum + r.playerCount, 0);
         return new Response(JSON.stringify({
           queueSize: this.queue.length,
+          waitingPlayers,
+          activeMatchPlayers,
+          totalOnline: waitingPlayers + activeMatchPlayers,
           queue: this.queue.map(e => ({
             playerId: e.playerId,
             quizType: e.quizType,
@@ -185,6 +224,7 @@ export class MatchmakerObject extends DurableObject {
         if (url.searchParams.get('reset') === '1') {
           await this.state.storage.deleteAll();
           this.queue = [];
+          this.activeRooms.clear();
           return new Response(JSON.stringify({ ok: true, message: 'matchmaker state cleared' }), {
             headers: { 'Content-Type': 'application/json' },
           });
@@ -302,6 +342,13 @@ export class MatchmakerObject extends DurableObject {
     if (!ws) return;
 
     const quizType = (payload.quizType as QuizType) || 'resonator';
+
+    // 全局模式仅限随机匹配，不允许创建房间
+    if (quizType === 'global') {
+      sendJson(ws, S2C.ERROR, { message: '全局模式仅限随机匹配，无法创建房间', error_code: 'GLOBAL_CREATE_NOT_ALLOWED' });
+      return;
+    }
+
     const difficulty = (payload.difficulty as Difficulty) || 'easy';
     const bestOf = Number(payload.bestOf) || 1;
 
@@ -323,7 +370,10 @@ export class MatchmakerObject extends DurableObject {
     }
 
     const quizType = (payload.quizType as QuizType) || 'resonator';
-    const difficulty = (payload.difficulty as Difficulty) || 'easy';
+    // 全局和共鸣者模式统一使用 'easy' 难度，仅声骸模式区分难度
+    const difficulty: Difficulty = quizType === 'skeleton'
+      ? ((payload.difficulty as Difficulty) || 'easy')
+      : 'easy';
     // 按游戏规则文档：随机匹配固定 BO3 赛制，忽略前端传入值
     const bestOf = 3;
     console.log(`[MatchmakerDO.addToQueue] player=${playerId} quizType=${quizType} difficulty=${difficulty} bestOf=${bestOf}`);
@@ -396,13 +446,45 @@ export class MatchmakerObject extends DurableObject {
         const b = connected[j];
 
         // 检查偏好是否匹配
-        // 注意：共鸣者(resonator) 模式没有难度概念，忽略 difficulty 差异避免误配
-        const sameQuiz = a.quizType === b.quizType;
-        const sameBestOf = a.bestOf === b.bestOf;
-        const sameDifficulty = a.quizType === 'skeleton' ? a.difficulty === b.difficulty : true;
-        if (sameQuiz && sameBestOf && sameDifficulty) {
-          console.log(`[MatchmakerDO.tryMatch] matched! ${a.playerId} vs ${b.playerId} (${a.quizType}/${a.difficulty}/BO${a.bestOf})`);
-          await this.createRoomForMatch(a, b);
+        // 全局(global)可以匹配任何类型（共鸣者/声骸/全局）
+        const aIsGlobal = a.quizType === 'global';
+        const bIsGlobal = b.quizType === 'global';
+
+        // 确定两位玩家是否可以匹配
+        let canMatch: boolean;
+        if (aIsGlobal || bIsGlobal) {
+          // 全局玩家可以匹配任何人
+          canMatch = true;
+        } else {
+          // 非全局玩家：需要 quizType 相同
+          const sameQuiz = a.quizType === b.quizType;
+          // 共鸣者(resonator) 模式没有难度概念，忽略 difficulty 差异避免误配
+          const sameDifficulty = a.quizType === 'skeleton' ? a.difficulty === b.difficulty : true;
+          canMatch = sameQuiz && sameDifficulty;
+        }
+
+        if (canMatch) {
+          // 确定实际游戏类型：
+          //   若一方为全局，使用对方的类型；双方都是全局则默认共鸣者
+          let actualQuizType: QuizType;
+          let actualDifficulty: Difficulty;
+
+          if (aIsGlobal && !bIsGlobal) {
+            actualQuizType = b.quizType;
+            actualDifficulty = b.difficulty;
+          } else if (bIsGlobal && !aIsGlobal) {
+            actualQuizType = a.quizType;
+            actualDifficulty = a.difficulty;
+          } else if (aIsGlobal && bIsGlobal) {
+            actualQuizType = 'resonator';
+            actualDifficulty = 'easy';
+          } else {
+            actualQuizType = a.quizType;
+            actualDifficulty = a.difficulty;
+          }
+
+          console.log(`[MatchmakerDO.tryMatch] matched! ${a.playerId} vs ${b.playerId} (game=${actualQuizType}/${actualDifficulty}/BO${a.bestOf})`);
+          await this.createRoomForMatch(a, b, actualQuizType, actualDifficulty);
           return;
         }
       }
@@ -410,33 +492,45 @@ export class MatchmakerObject extends DurableObject {
     console.log('[MatchmakerDO.tryMatch] no pairs matched (check quizType/difficulty/bestOf compatibility)');
   }
 
-  private async createRoomForMatch(a: QueueEntry, b: QueueEntry): Promise<void> {
+  private async createRoomForMatch(a: QueueEntry, b: QueueEntry, actualQuizType: QuizType, actualDifficulty: Difficulty): Promise<void> {
     // 从队列中移除
     this.queue = this.queue.filter(e => e.playerId !== a.playerId && e.playerId !== b.playerId);
 
     // 通知两位玩家匹配成功
     const roomCode = generateRoomCode();
-    console.log(`[MatchmakerDO.createRoomForMatch] roomCode=${roomCode} a=${a.playerId} b=${b.playerId} a.hasWs=${!!a.ws} b.hasWs=${!!b.ws}`);
+    console.log(`[MatchmakerDO.createRoomForMatch] roomCode=${roomCode} a=${a.playerId} b=${b.playerId} a.hasWs=${!!a.ws} b.hasWs=${!!b.ws} game=${actualQuizType}/${actualDifficulty}`);
 
     // 将两位玩家连接到同一个 Room Durable Object
     const roomId = this.env.ROOM.idFromName(roomCode);
     const _roomStub = this.env.ROOM.get(roomId);
 
     // 通知客户端房间信息，客户端收到后会断开并重新连接到 /ws/room/{roomCode}
-    const countdownPayload = (entry: QueueEntry) => ({
+    const countdownPayload = {
       roomCode,
       countdownLeft: 3,
-      quizType: entry.quizType,
-      bestOf: entry.bestOf,
-      difficulty: entry.difficulty,
-    });
-    if (a.ws) sendJson(a.ws, S2C.COUNTDOWN_STARTED, countdownPayload(a));
+      quizType: actualQuizType,
+      bestOf: a.bestOf,
+      difficulty: actualDifficulty,
+    };
+    if (a.ws) sendJson(a.ws, S2C.COUNTDOWN_STARTED, countdownPayload);
     else console.warn(`[MatchmakerDO.createRoomForMatch] a.player ${a.playerId} ws null, cannot send COUNTDOWN_STARTED`);
-    if (b.ws) sendJson(b.ws, S2C.COUNTDOWN_STARTED, countdownPayload(b));
+    if (b.ws) sendJson(b.ws, S2C.COUNTDOWN_STARTED, countdownPayload);
     else console.warn(`[MatchmakerDO.createRoomForMatch] b.player ${b.playerId} ws null, cannot send COUNTDOWN_STARTED`);
+
+    // 注册活跃对局，用于匹配池在线人数统计
+    this.activeRooms.set(roomCode, { playerCount: 2, createdAt: Date.now() });
 
     this.broadcastQueueStatus();
     this.persistState();
+  }
+
+  // ── RPC: RoomObject 销毁时通知匹配器减少活跃对局计数 ──
+  async notifyMatchEnded(roomCode: string): Promise<void> {
+    if (this.activeRooms.has(roomCode)) {
+      this.activeRooms.delete(roomCode);
+      this.persistState();
+      console.log(`[MatchmakerDO.notifyMatchEnded] room=${roomCode} removed. activeRooms=${this.activeRooms.size}`);
+    }
   }
 
   private sendToPlayer(playerId: string, type: string, payload: unknown): void {
@@ -458,6 +552,7 @@ export class MatchmakerObject extends DurableObject {
           bestOf: e.bestOf,
           joinedAt: e.joinedAt,
         })),
+        activeRooms: Array.from(this.activeRooms.entries()),
       };
       await this.state.storage.put('matchmaker_state', JSON.stringify(data));
     } catch { /* ignore */ }

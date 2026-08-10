@@ -81,6 +81,7 @@ export const acknowledgements = sqliteTable('acknowledgements', {
   playerId: text('player_id').notNull(),
   category: text('category').notNull().default('bug'), // 'bug' | 'feature' | 'support' | 'other'
   description: text('description').notNull().default(''),
+  avatar: text('avatar'), // 头像链接，可为空
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
 });

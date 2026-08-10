@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, watchEffect } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import ModalOverlay from "@/components/shared/ModalOverlay.vue";
@@ -8,6 +8,7 @@ import { useMultiGameStore } from "@/stores/multiGame";
 import { useTheme } from "@/composables/useTheme";
 import { useSettings } from "@/composables/useSettings";
 import { useLocalStorage } from "@/composables/useStorage";
+import { sendHeartbeat } from "@/api";
 import type { AccentPreset } from "@/types";
 
 const ACCENT_KEY = "phrolova_accent";
@@ -25,7 +26,7 @@ const isGameRoute = computed(() => {
   return name === "single" || name === "single-play" || name === "multi-lobby" || name === "multi-room";
 });
 const isAdminLoginRoute = computed(() => route.name === "admin-login");
-const isAdminRoute = computed(() => isAdminLoginRoute.value || route.name === "admin-diff" || route.name === "admin-table");
+const isAdminRoute = computed(() => isAdminLoginRoute.value || route.name === "admin-diff" || route.name === "admin-table" || route.name === "admin-acknowledgements");
 
 const ACCENTS: AccentPreset[] = [
   {
@@ -111,7 +112,62 @@ onMounted(async () => {
   if (authStore.isAuthenticated) {
     await multiGameStore.resumeRoom().catch(() => undefined);
   }
+  startOnlineHeartbeat();
+  document.addEventListener("visibilitychange", onVisibilityChange);
 });
+
+onBeforeUnmount(() => {
+  stopOnlineHeartbeat();
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+});
+
+// ── 全站在线心跳 ──
+// 已登录用 playerId，匿名用 localStorage 生成的 guest ID
+// 页面不可见时暂停心跳，可见时立即恢复
+const GUEST_ID_KEY = "phrolova_guest_id";
+const HEARTBEAT_INTERVAL = 30 * 1000; // 30 秒
+let heartbeatTimer: number | null = null;
+
+function getOnlineClientId(): string {
+  if (authStore.playerId) return authStore.playerId;
+  // 匿名访客：从 localStorage 取或生成 guest ID
+  let guestId = "";
+  try { guestId = localStorage.getItem(GUEST_ID_KEY) ?? ""; } catch { /* ignore */ }
+  if (!guestId) {
+    guestId = "guest_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    try { localStorage.setItem(GUEST_ID_KEY, guestId); } catch { /* ignore */ }
+  }
+  return guestId;
+}
+
+function sendOnlineHeartbeat() {
+  const clientId = getOnlineClientId();
+  sendHeartbeat(clientId).catch(() => { /* 静默失败 */ });
+}
+
+function startOnlineHeartbeat() {
+  stopOnlineHeartbeat();
+  sendOnlineHeartbeat(); // 立即发送一次
+  heartbeatTimer = window.setInterval(() => {
+    if (document.visibilityState === "visible") {
+      sendOnlineHeartbeat();
+    }
+  }, HEARTBEAT_INTERVAL);
+}
+
+function stopOnlineHeartbeat() {
+  if (heartbeatTimer !== null) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+// 页面从隐藏恢复可见时立即发一次心跳
+function onVisibilityChange() {
+  if (document.visibilityState === "visible") {
+    sendOnlineHeartbeat();
+  }
+}
 </script>
 
 <template>

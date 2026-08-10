@@ -20,9 +20,12 @@ defineEmits<{
       :class="{ 'tab-group-btn--active': activeKey === tab.key }"
       @click="$emit('select', tab.key)"
     >
-      <Icon v-if="tab.icon" :icon="tab.icon" class="tab-group-icon" aria-hidden="true" />
+      <template v-if="tab.icon">
+        <Icon :icon="tab.icon" class="tab-group-icon" aria-hidden="true" />
+        <span v-if="tab.iconSecondary" class="tab-group-icon-sep">/</span>
+        <Icon v-if="tab.iconSecondary" :icon="tab.iconSecondary" class="tab-group-icon" aria-hidden="true" />
+      </template>
       {{ tab.label }}
     </button>
   </nav>
 </template>
-

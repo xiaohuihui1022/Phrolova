@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { bindAdminRouter, clearAdminToken, isAdminTokenExpired } from "@/composables/useAdmin";
+import { readCookie } from "@/composables/useStorage";
 
 const HomePage = () => import("@/pages/HomePage.vue");
 const AuthPage = () => import("@/pages/AuthPage.vue");
@@ -43,7 +44,7 @@ const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   if (to.meta.admin) {
-    const token = localStorage.getItem("admin_token");
+    const token = readCookie("admin_token");
     if (!token || isAdminTokenExpired(token)) {
       if (token) clearAdminToken();
       next({ name: "admin-login", query: { redirect: to.fullPath } });

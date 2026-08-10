@@ -26,6 +26,10 @@ export const useMultiGameStore = defineStore("multiGame", () => {
   const inQueue = shallowRef(false);
   /** 随机匹配成功、正在进入房间的过渡态：用于弹窗弥补连接房间期间的视觉空白 */
   const matched = shallowRef(false);
+  /** 创建房间中、等待进入房间的过渡态：用于弹窗弥补创建+连接期间的视觉空白 */
+  const creatingRoom = shallowRef(false);
+  /** 加入房间中、等待进入房间的过渡态：用于弹窗弥补连接期间的视觉空白 */
+  const joiningRoom = shallowRef(false);
   const roomState = ref<MultiplayerRoomState | null>(null);
   const kicked = shallowRef(false);
   const matchScoreDelta = ref(0);
@@ -102,6 +106,8 @@ export const useMultiGameStore = defineStore("multiGame", () => {
           const message = (payload?.message as string) || "多人模式发生错误";
           error.value = message;
           matched.value = false;
+          creatingRoom.value = false;
+          joiningRoom.value = false;
           if (_roomStateReject) {
             _roomStateReject(new Error(message));
             _roomStateReject = null;
@@ -189,6 +195,8 @@ export const useMultiGameStore = defineStore("multiGame", () => {
           roomState.value = processedState;
           inQueue.value = false;
           matched.value = false;
+          creatingRoom.value = false;
+          joiningRoom.value = false;
           error.value = "";
           if (processedState.roomStatus === "waiting") {
             roundResult.value = null;
@@ -483,6 +491,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
   async function createRoom(quizType: QuizType, bestOf: number, difficulty: Difficulty): Promise<void> {
     _waitingForRoomState = true;
     _isTransitioning = true;
+    creatingRoom.value = true;
     try {
       const roomCode = generateRoomCode();
       const ws = await ensureConnected(`/ws/room/${roomCode}`);
@@ -491,15 +500,22 @@ export const useMultiGameStore = defineStore("multiGame", () => {
     } catch (e) {
       _waitingForRoomState = false;
       _isTransitioning = false;
+      creatingRoom.value = false;
       throw e;
     }
   }
 
   async function joinRoom(roomCode: string): Promise<void> {
     _waitingForRoomState = true;
-    const ws = await ensureConnected(`/ws/room/${roomCode}`);
-    ws.send(C2S.JOIN_ROOM, { roomCode });
-    await waitForRoomState();
+    joiningRoom.value = true;
+    try {
+      const ws = await ensureConnected(`/ws/room/${roomCode}`);
+      ws.send(C2S.JOIN_ROOM, { roomCode });
+      await waitForRoomState();
+    } catch (e) {
+      joiningRoom.value = false;
+      throw e;
+    }
   }
 
   async function joinQueue(quizType: QuizType, difficulty: Difficulty, bestOf: number): Promise<void> {
@@ -559,6 +575,8 @@ export const useMultiGameStore = defineStore("multiGame", () => {
     connectionState.value = "idle";
     inQueue.value = false;
     matched.value = false;
+    creatingRoom.value = false;
+    joiningRoom.value = false;
     _inRoom = false;
     _isTransitioning = false;
     _waitingForRoomState = false;
@@ -574,6 +592,8 @@ export const useMultiGameStore = defineStore("multiGame", () => {
     infoMessage,
     inQueue,
     matched,
+    creatingRoom,
+    joiningRoom,
     roomState,
     me,
     opponent,

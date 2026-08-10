@@ -11,6 +11,7 @@ import {
   registerPostRefreshHook,
 } from './authSession';
 import { useToast } from '@/composables/useToast';
+import { readCookie } from '@/composables/useStorage';
 
 export type WsMessage = {
   type: string;
@@ -203,8 +204,8 @@ const _connectingTasks = new Map<string, Promise<GameWebSocket>>();
 
 function readLocalCreds(): { playerId: string; token: string } | null {
   try {
-    const pid = localStorage.getItem(PLAYER_ID_KEY) ?? '';
-    const tok = localStorage.getItem(PLAYER_TOKEN_KEY) ?? '';
+    const pid = readCookie(PLAYER_ID_KEY) ?? '';
+    const tok = readCookie(PLAYER_TOKEN_KEY) ?? '';
     if (pid && tok) return { playerId: pid, token: tok };
     return null;
   } catch { return null; }

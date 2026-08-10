@@ -1,4 +1,4 @@
-export type QuizType = "resonator" | "skeleton";
+export type QuizType = "resonator" | "skeleton" | "global";
 export type Difficulty = "easy" | "hard";
 export type CompareStatus = "match" | "near" | "different";
 export type CellStatus = "match" | "partial" | "different";
@@ -92,6 +92,7 @@ export interface ApiStatusResponse {
 
 export interface AuthResponse extends ApiStatusResponse {
   player?: {
+    id: number;
     player_id: string;
     score: number;
     wins: number;
@@ -122,6 +123,7 @@ export interface SingleGuessResponse extends ApiStatusResponse {
 }
 
 export interface LeaderboardRow {
+  id?: number;
   player_id: string;
   score: number;
   sort_score?: number;
@@ -151,6 +153,7 @@ export interface LeaderboardResponse extends ApiStatusResponse {
 
 export interface RoomPlayerView {
   playerId: string;
+  dbId: number | null;
   roundWins: number;
   attemptsUsed: number;
   attemptsLimit: number;
@@ -186,6 +189,7 @@ export interface MultiplayerRoomState {
     target: ResonatorRow | SkeletonRow | null;
     players: Array<{
       player_id: string;
+      db_id: number | null;
       guesses: GuessHistoryRow[];
     }>;
   }>;

@@ -56,7 +56,7 @@ function logout() {
           <div class="ap-profile-head">
             <div class="ap-avatar">{{ initials }}</div>
             <div class="ap-profile-info">
-              <strong class="ap-player-name">{{ authStore.playerId }}</strong>
+              <strong class="ap-player-name">{{ authStore.playerId }}<template v-if="authStore.dbId != null"> #{{ authStore.dbId }}</template></strong>
               <span class="ap-player-role">Player</span>
             </div>
           </div>

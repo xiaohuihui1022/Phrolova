@@ -25,12 +25,16 @@ const suggestions = computed(() => {
     .filter((item) => item.name.toLowerCase().includes(keyword));
 });
 
-watch(suggestions, () => {
-  if (suggestions.value.length > 0) {
-    activeIndex.value = 0;
-  } else {
+watch(suggestions, (newSuggestions) => {
+  if (newSuggestions.length === 0) {
     activeIndex.value = -1;
+    return;
   }
+  // 如果当前 model 值精确匹配列表中的某一项，则定位到那一项（保留用户点击选择的结果）
+  const exactIndex = newSuggestions.findIndex(
+    (item) => item.name.toLowerCase() === model.value.trim().toLowerCase(),
+  );
+  activeIndex.value = exactIndex >= 0 ? exactIndex : 0;
 });
 
 /** 根据当前输入计算最终要提交的名称：优先用激活项，否则用第一个补全，否则直接用输入内容。 */
@@ -49,7 +53,11 @@ function resolveFinalName(): string {
 
 function selectSuggestion(name: string) {
   model.value = name;
-  activeIndex.value = -1;
+  // 直接定位到被点击的项，保持高亮（即使重复点击同一项也不会丢失索引）
+  const idx = suggestions.value.findIndex(
+    (item) => item.name.toLowerCase() === name.toLowerCase(),
+  );
+  activeIndex.value = idx >= 0 ? idx : 0;
   inputRef.value?.focus();
 }
 
@@ -82,7 +90,7 @@ function focus() {
   inputRef.value?.focus();
 }
 
-defineExpose({ focus });
+defineExpose({ focus, resolveFinalName });
 
 </script>
 

@@ -86,7 +86,7 @@ onMounted(loadLeaderboard);
       </div>
       <div class="lb-header-right">
         <div v-if="authStore.isAuthenticated" class="lb-me-chip">
-          <span class="lb-me-id">{{ authStore.playerId }}</span>
+          <span class="lb-me-id">{{ authStore.playerId }}<template v-if="authStore.dbId != null"> #{{ authStore.dbId }}</template></span>
           <span v-if="myInfo?.rank" class="lb-me-rank">#{{ myInfo.rank }}</span>
         </div>
       </div>
@@ -105,7 +105,7 @@ onMounted(loadLeaderboard);
                 <Icon v-if="index === 0" icon="ph:crown-fill" class="lb-podium-crown" />
                 <span class="lb-podium-rank">{{ index + 1 }}</span>
               </div>
-              <span class="lb-podium-name">{{ row.player_id }}</span>
+              <span class="lb-podium-name">{{ row.player_id }}<template v-if="row.id != null"> #{{ row.id }}</template></span>
               <span class="lb-podium-score">{{ row.sort_score ?? row.score }}</span>
               <span class="lb-podium-rate">{{ row.win_rate !== null && row.win_rate !== undefined ? row.win_rate + '%' : '-' }}</span>
             </div>
@@ -114,7 +114,7 @@ onMounted(loadLeaderboard);
           <div class="lb-rows">
             <div v-for="(row, index) in (showPodium ? leaderboard.slice(3) : leaderboard)" :key="(row.player_id as string)" class="lb-row">
               <span class="lb-row-rank">{{ row.rank ?? (showPodium ? index + 4 : (page - 1) * PAGE_SIZE + index + 1) }}</span>
-              <span class="lb-row-name">{{ row.player_id }}</span>
+              <span class="lb-row-name">{{ row.player_id }}<template v-if="row.id != null"> #{{ row.id }}</template></span>
               <span class="lb-row-score">{{ row.sort_score ?? row.score }}</span>
               <span class="lb-row-rate">{{ row.win_rate !== null && row.win_rate !== undefined ? row.win_rate + '%' : '-' }}</span>
             </div>

@@ -56,6 +56,12 @@
   --gold: #a78bfa;
   --gold-soft: rgba(167, 139, 250, 0.45);
   --shadow-plate: rgba(0, 0, 0, 0.8);
+
+  /* Semantic color aliases */
+  --danger: var(--color-error);
+  --accent: var(--color-accent);
+  --accent-2: var(--color-secondary);
+  --accent-3: var(--color-info);
 }
 
 /* ── Light theme ── */
@@ -109,4 +115,10 @@
   --gold: #7c5cc4;
   --gold-soft: rgba(124, 92, 196, 0.35);
   --shadow-plate: rgba(0, 0, 0, 0.1);
+
+  /* Semantic color aliases */
+  --danger: var(--color-error);
+  --accent: var(--color-accent);
+  --accent-2: var(--color-secondary);
+  --accent-3: var(--color-info);
 }

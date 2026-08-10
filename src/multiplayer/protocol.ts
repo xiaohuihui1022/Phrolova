@@ -9,7 +9,7 @@
 //   Client → Server:  { type: "...", payload: {...} }
 //   Server → Client:  { type: "...", payload: {...} }
 
-export type QuizType = 'resonator' | 'skeleton';
+export type QuizType = 'resonator' | 'skeleton' | 'global';
 export type Difficulty = 'easy' | 'hard';
 
 // ── 客户端→服务端 事件 ──

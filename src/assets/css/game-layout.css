@@ -13,13 +13,14 @@
 }
 
 .game-shell {
-  min-height: 100dvh;
+  height: 100dvh;
   max-width: 1400px;
   margin: 0 auto;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 0.6rem;
   padding: 0.8rem clamp(1rem, 4vw, 3rem) 0.8rem;
+  box-sizing: border-box;
 }
 
 /* ── Score bar ── */

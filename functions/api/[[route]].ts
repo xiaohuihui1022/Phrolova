@@ -26,6 +26,7 @@ import { generateToken, hmacSha256Hex, timingSafeEqualStrings } from '../../src/
 type Bindings = {
   DB: D1Database;
   KV: KVNamespace;
+  MATCHMAKER: DurableObjectNamespace;
   SECRET_KEY: string;
   ADMIN_USER: string;
   ADMIN_PASSWORD: string;
@@ -130,6 +131,85 @@ async function requirePlayerAuth(c: any): Promise<PlayerAuthResult> {
 
 // ── Health ─────────────────────────────────────────────────────────
 app.get('/api/health', (c) => c.json(success({})));
+
+// ── 全站在线人数统计 ──────────────────────────────────────────────
+// 基于 KV online:{clientId} 心跳记录（TTL=60s），统计仍活跃的访客数
+// 前端在 App.vue 全局发送心跳（已登录用 playerId，匿名用 localStorage 生成的 guest ID）
+const ONLINE_KV_PREFIX_STATS = 'online:';
+const ONLINE_KV_TTL_STATS = 60;
+
+app.post('/api/stats/heartbeat', async (c) => {
+  try {
+    const body = await readJson(c);
+    const clientId = String(body.client_id ?? '').trim();
+    if (!clientId || clientId.length > 128) {
+      return error('无效的 client_id');
+    }
+    await c.env.KV.put(ONLINE_KV_PREFIX_STATS + clientId, String(Date.now()), {
+      expirationTtl: ONLINE_KV_TTL_STATS,
+    });
+    return c.json(success({}));
+  } catch (e) {
+    console.warn('[stats/heartbeat] KV error:', e);
+    return c.json(success({})); // 静默失败
+  }
+});
+
+app.get('/api/stats/online', async (c) => {
+  try {
+    // KV.list() 最多一次返回 1000 条，对于中小规模站点足够；
+    // 若后续超过 1000 在线，需要改为计数器方案
+    let onlineCount = 0;
+    let cursor: string | undefined = undefined;
+    const MAX_PAGES = 10; // 最多翻 10 页（10000 在线），防止无限循环
+    let pages = 0;
+    do {
+      const list: KVNamespaceListResult<unknown> = await c.env.KV.list({ prefix: ONLINE_KV_PREFIX_STATS, cursor });
+      onlineCount += list.keys.length;
+      cursor = list.list_complete ? undefined : list.cursor;
+      pages += 1;
+      if (pages >= MAX_PAGES) break;
+    } while (cursor);
+    return c.json(success({
+      online_count: onlineCount,
+      updated_at: Date.now(),
+    }));
+  } catch (e) {
+    // KV 出错时降级：返回 0，不影响前端其他功能
+    console.warn('[stats/online] KV error:', e);
+    return c.json(success({
+      online_count: 0,
+      updated_at: Date.now(),
+      degraded: true,
+    }));
+  }
+});
+
+// ── 匹配池实时在线人数统计 ──────────────────────────────────────────
+// 从 MatchmakerObject DO 读取队列等待人数 + 活跃对局人数
+// 轻量级 HTTP GET（非 WebSocket），前端每 8 秒轮询一次
+app.get('/api/matchmaking/pool-stats', async (c) => {
+  try {
+    const id = c.env.MATCHMAKER.idFromName('default');
+    const stub = c.env.MATCHMAKER.get(id);
+    const resp = await stub.fetch(new Request('https://internal/matchmaker', { method: 'GET' }));
+    const data = await resp.json() as {
+      waitingPlayers?: number;
+      activeMatchPlayers?: number;
+      totalOnline?: number;
+    };
+    const waiting = data.waitingPlayers ?? 0;
+    const inMatch = data.activeMatchPlayers ?? 0;
+    return c.json(success({
+      waiting,
+      in_match: inMatch,
+      total: waiting + inMatch,
+    }));
+  } catch (e) {
+    console.warn('[matchmaking/pool-stats] error:', e);
+    return c.json(success({ waiting: 0, in_match: 0, total: 0, degraded: true }));
+  }
+});
 
 // ── Captcha ────────────────────────────────────────────────────────
 app.get('/api/auth/captcha', async (c) => {
@@ -537,6 +617,7 @@ app.get('/api/leaderboard', async (c) => {
 
   const orderCol = players[scoreCol] ?? players.score;
   const topRows = await db.select({
+    id: players.id,
     playerId: players.playerId,
     score: players.score,
     wins: players.wins,
@@ -550,6 +631,7 @@ app.get('/api/leaderboard', async (c) => {
     const sortScore = Number(r.sortScore ?? 0);
     const winRate = r.matches ? Math.round(r.wins * 1000 / r.matches) / 10 : null;
     return {
+      id: r.id,
       player_id: r.playerId,
       score: r.score,
       wins: r.wins,
@@ -843,6 +925,7 @@ app.get('/api/acknowledgements', async (c) => {
     player_id: acknowledgements.playerId,
     category: acknowledgements.category,
     description: acknowledgements.description,
+    avatar: acknowledgements.avatar,
     sort_order: acknowledgements.sortOrder,
     created_at: acknowledgements.createdAt,
   }).from(acknowledgements).orderBy(acknowledgements.sortOrder, acknowledgements.id);
@@ -859,6 +942,7 @@ app.get('/api/admin/acknowledgements', async (c) => {
     player_id: acknowledgements.playerId,
     category: acknowledgements.category,
     description: acknowledgements.description,
+    avatar: acknowledgements.avatar,
     sort_order: acknowledgements.sortOrder,
     created_at: acknowledgements.createdAt,
   }).from(acknowledgements).orderBy(acknowledgements.sortOrder, acknowledgements.id);
@@ -873,10 +957,11 @@ app.post('/api/admin/acknowledgements', async (c) => {
   const playerId = String(body.player_id ?? '').trim();
   const category = String(body.category ?? 'bug').trim();
   const description = String(body.description ?? '').trim();
+  const avatar = String(body.avatar ?? '').trim();
   const sortOrder = Number(body.sort_order ?? 0);
   if (!playerId) return error('缺少玩家ID');
   const result = await db.insert(acknowledgements).values({
-    playerId, category, description, sortOrder,
+    playerId, category, description, avatar: avatar || null, sortOrder,
   }).returning({ id: acknowledgements.id });
   await appendLog(db, 'INFO', `ack add: ${playerId} (${category})`);
   return c.json(success({ id: result[0]?.id }));
@@ -893,6 +978,7 @@ app.put('/api/admin/acknowledgements/:id', async (c) => {
   if ('player_id' in body) sets.playerId = String(body.player_id ?? '').trim();
   if ('category' in body) sets.category = String(body.category ?? 'bug').trim();
   if ('description' in body) sets.description = String(body.description ?? '').trim();
+  if ('avatar' in body) sets.avatar = String(body.avatar ?? '').trim() || null;
   if ('sort_order' in body) sets.sortOrder = Number(body.sort_order ?? 0);
   if (Object.keys(sets).length === 0) return error('无更新字段');
   const exists = await db.select({ id: acknowledgements.id }).from(acknowledgements).where(eq(acknowledgements.id, id)).limit(1);

@@ -22,7 +22,7 @@ const dictionaryStore = useDictionaryStore();
 const multiGameStore = useMultiGameStore();
 const router = useRouter();
 const guessName = shallowRef("");
-const guessInputRef = useTemplateRef<{ focus: () => void }>("guessInput");
+const guessInputRef = useTemplateRef<{ focus: () => void; resolveFinalName: () => string }>("guessInput");
 
 type BoardLayout = "rows" | "columns";
 const LAYOUT_STORAGE_KEY = "phrolova_multi_board_layout";
@@ -48,7 +48,13 @@ const battleTitle = computed(() => {
 });
 
 const stagePromptTitle = computed(() => {
-  if (multiGameStore.roomState?.quizType === "skeleton") return "在下方输入声骸名称开始实时猜测";
+  const rs = multiGameStore.roomState;
+  if (!rs) return "";
+  if (rs.roomStatus === "waiting") {
+    return multiGameStore.opponent ? "对手已加入，即将开始..." : "等待对手加入...";
+  }
+  if (rs.roomStatus === "countdown") return "对局即将开始";
+  if (rs.quizType === "skeleton") return "在下方输入声骸名称开始实时猜测";
   return "在下方输入角色昵称开始实时猜测";
 });
 
@@ -68,13 +74,24 @@ const roomHintText = computed(() => {
 const answerText = computed(() => multiGameStore.roomState?.target?.name ?? "");
 
 const dockHintText = computed(() => {
-  if (!multiGameStore.roomState) return "";
+  const rs = multiGameStore.roomState;
+  if (!rs) return "";
   if (multiGameStore.canGuess) return "当前轮到你提交猜测";
-  return multiGameStore.roomState.roomStatus === "countdown" ? "对局即将开始" : "等待系统推进或对手行动";
+  if (rs.roomStatus === "countdown") return "对局即将开始";
+  if (rs.roomStatus === "waiting") {
+    return multiGameStore.opponent ? "对手已加入，即将开始..." : "等待对手加入...";
+  }
+  return "等待系统推进或对手行动";
 });
 
 const myWins = computed(() => multiGameStore.me?.roundWins ?? 0);
 const opponentWins = computed(() => multiGameStore.opponent?.roundWins ?? 0);
+const opponentLabel = computed(() => {
+  const opp = multiGameStore.opponent;
+  const oppId = opp?.playerId || multiGameStore.roomState?.opponentId || "";
+  if (!oppId) return "等待加入";
+  return opp?.dbId != null ? `${oppId} #${opp.dbId}` : oppId;
+});
 const targetBestOf = computed(() => multiGameStore.roomState?.bestOf ?? 1);
 const winsNeeded = computed(() => Math.ceil(targetBestOf.value / 2));
 
@@ -100,24 +117,59 @@ let roundPopupTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 我方猜测滚动容器（每块 panel 内独立滚动，避免整页被顶下去手动划） */
 const myBoardBody = ref<HTMLElement | null>(null);
+
+/** 将目标滚动容器滚到底部；同时兼容内层 .guess-table-shell 自身的 overflow:auto */
+function scrollBoardToBottom(el: HTMLElement | null) {
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+  const innerShell = el.querySelector<HTMLElement>(".guess-table-shell");
+  if (innerShell) innerShell.scrollTop = innerShell.scrollHeight;
+}
+
 /** 只在我方提交新猜测时滚到底部，对手新条目触发 opponentGuesses 变化时不动 */
 let _lastMyGuessesLength = 0;
+function watchMyGuesses(len: number) {
+  if (len > _lastMyGuessesLength) {
+    // 双保险：nextTick 等 Vue 渲染，再等一帧确保 CSS 渐入动画与表格布局已完成
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        scrollBoardToBottom(myBoardBody.value);
+        // 极慢设备上再补一次，避免动画最终帧完成后又露出空白
+        setTimeout(() => scrollBoardToBottom(myBoardBody.value), 60);
+      });
+    });
+  }
+  _lastMyGuessesLength = len;
+}
 watch(
   () => myGuesses.value.length,
-  async (len) => {
-    if (len > _lastMyGuessesLength) {
-      await nextTick();
-      const el = myBoardBody.value;
-      if (el) el.scrollTop = el.scrollHeight;
-    }
-    _lastMyGuessesLength = len;
-  },
+  watchMyGuesses,
 );
+
 // 新 round 开始时清零计数（防止 round 切换后 len 从大变小再变大时误滚）
 watch(
   () => multiGameStore.roomState?.round,
-  () => { _lastMyGuessesLength = 0; },
+  (newRound, oldRound) => {
+    _lastMyGuessesLength = 0;
+    // 新 round 第一条之前先滚回顶部，避免处于上一轮底部遮挡内容
+    if (newRound !== undefined && newRound !== oldRound) {
+      nextTick(() => {
+        const el = myBoardBody.value;
+        if (el) el.scrollTop = 0;
+      });
+    }
+  },
 );
+
+// 初始挂载或重连时：如果已有我方猜测，也滚到最底下一次，避免停留在顶部挡住最新一条
+onMounted(() => {
+  if (myGuesses.value.length > 0) {
+    _lastMyGuessesLength = myGuesses.value.length;
+    nextTick(() => {
+      requestAnimationFrame(() => scrollBoardToBottom(myBoardBody.value));
+    });
+  }
+});
 
 // Show round result popup for BO3/BO5
 watch(
@@ -244,16 +296,10 @@ async function submitGuess(finalName?: string) {
   } catch { /* ignore */ }
 }
 
-/** 点击提交按钮：自动补全到第一个匹配项再提交，与按 Enter 键效果一致。 */
+/** 点击提交按钮：使用组件内部逻辑 resolveFinalName 获取最终名称（考虑 activeIndex）。 */
 function handleClickSubmit() {
-  const keyword = guessName.value.trim().toLowerCase();
-  if (keyword) {
-    const match = names.value.find((n) => n.name.toLowerCase().includes(keyword));
-    if (match) {
-      guessName.value = match.name;
-    }
-  }
-  submitGuess(guessName.value);
+  const finalName = guessInputRef.value?.resolveFinalName() ?? guessName.value;
+  submitGuess(finalName);
 }
 
 async function leaveRoom() {
@@ -391,7 +437,7 @@ watch(
             <div class="mr-board-panel">
               <div class="mr-board-head">
                 <h3 class="mr-board-title"><Icon icon="ph:user-circle-duotone" class="mr-board-head-icon" /> 对手猜测</h3>
-                <span class="mr-board-meta">{{ multiGameStore.opponent?.playerId || multiGameStore.roomState.opponentId || "等待加入" }}</span>
+                <span class="mr-board-meta">{{ opponentLabel }}</span>
               </div>
               <div class="mr-board-body">
                 <GuessTable

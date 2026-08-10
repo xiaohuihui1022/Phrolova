@@ -8,8 +8,9 @@ import { useAuthStore } from "@/stores/auth";
 import { useMultiGameStore } from "@/stores/multiGame";
 import type { CaptchaResponse } from "@/types";
 import { errMsg } from "@/api/client";
-import { fetchCaptcha, fetchScryptParams } from "@/api";
+import { fetchCaptcha, fetchOnlineStats, fetchScryptParams } from "@/api";
 import { computeScryptHex } from "@/lib/scrypt-client";
+import { getCookieConsent, setCookieConsent } from "@/composables/useStorage";
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -93,11 +94,45 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   ctx?.revert();
+  stopOnlinePoll();
 });
 
 const ANNOUNCE_KEY = "phrolova_announcement_v1";
 const showAnnouncement = shallowRef(false);
+const showCookieConsent = shallowRef(false);
 const showAuthModal = shallowRef(false);
+
+// ── 全站在线人数 ──
+const onlineCount = ref(0);
+const onlineLoading = shallowRef(true);
+let onlinePollTimer: number | null = null;
+const ONLINE_POLL_INTERVAL = 30 * 1000; // 30 秒轮询
+
+async function loadOnlineCount() {
+  try {
+    const data = await fetchOnlineStats();
+    onlineCount.value = Math.max(0, Number(data.online_count) || 0);
+  } catch {
+    // 静默失败，不影响首页体验
+  } finally {
+    onlineLoading.value = false;
+  }
+}
+
+function startOnlinePoll() {
+  stopOnlinePoll();
+  loadOnlineCount();
+  onlinePollTimer = window.setInterval(() => {
+    loadOnlineCount();
+  }, ONLINE_POLL_INTERVAL);
+}
+
+function stopOnlinePoll() {
+  if (onlinePollTimer !== null) {
+    clearInterval(onlinePollTimer);
+    onlinePollTimer = null;
+  }
+}
 const authMode = shallowRef<"login" | "register">("login");
 const resetMode = shallowRef(false);
 const captchaImage = shallowRef("");
@@ -234,10 +269,20 @@ function handleLogout() {
 }
 
 onMounted(async () => {
+  // 启动在线人数轮询
+  startOnlinePoll();
+
   // 首次访问公告弹窗
   try {
     if (!localStorage.getItem(ANNOUNCE_KEY)) {
       showAnnouncement.value = true;
+    }
+  } catch { /* ignore */ }
+
+  // 首次访问 Cookie 同意提示（仅未做选择时展示）
+  try {
+    if (getCookieConsent() === null) {
+      showCookieConsent.value = true;
     }
   } catch { /* ignore */ }
 
@@ -251,6 +296,16 @@ function closeAnnouncement() {
   showAnnouncement.value = false;
   try { localStorage.setItem(ANNOUNCE_KEY, "1"); } catch { /* ignore */ }
 }
+
+function acceptCookies() {
+  showCookieConsent.value = false;
+  setCookieConsent("accepted");
+}
+
+function declineCookies() {
+  showCookieConsent.value = false;
+  setCookieConsent("declined");
+}
 </script>
 
 <template>
@@ -259,6 +314,13 @@ function closeAnnouncement() {
       <div class="home-title-block">
         <h1 class="home-title">弗一把</h1>
         <p class="home-subtitle">Phrolova</p>
+        <div class="home-online-badge" :title="`${onlineCount} 位玩家在线`">
+          <span class="home-online-dot" :class="{ 'home-online-dot--active': !onlineLoading && onlineCount > 0 }"></span>
+          <span class="home-online-text">
+            <template v-if="onlineLoading">加载中...</template>
+            <template v-else>{{ onlineCount }} 位玩家在线</template>
+          </span>
+        </div>
       </div>
       <div class="home-portrait" :key="frolovaKey" ref="frolovaRef">
         <div class="home-portrait-inner">
@@ -296,6 +358,7 @@ function closeAnnouncement() {
           <div class="home-identity-header">
             <span class="home-identity-avatar">{{ authStore.playerId?.charAt(0)?.toUpperCase() }}</span>
             <strong class="home-identity-name">{{ authStore.playerId }}</strong>
+            <span v-if="authStore.dbId != null" class="home-identity-dbid">#{{ authStore.dbId }}</span>
           </div>
           <div class="home-identity-stats">
             <div class="home-identity-stat">
@@ -457,6 +520,24 @@ function closeAnnouncement() {
         </template>
       </div>
     </ModalOverlay>
+
+    <Transition name="cookie-slide">
+      <div v-if="showCookieConsent" class="cookie-consent" role="dialog" aria-label="Cookie 使用提示">
+        <div class="cookie-consent-icon"><Icon icon="ph:cookie-duotone" /></div>
+        <div class="cookie-consent-body">
+          <p class="cookie-consent-title">Cookie 使用说明</p>
+          <p class="cookie-consent-desc">本站使用 Cookie 保存您的登录状态，以便下次访问时自动保持登录。继续使用即表示您同意我们使用 Cookie。</p>
+          <div class="cookie-consent-actions">
+            <button class="cookie-consent-btn cookie-consent-btn--primary" type="button" @click="acceptCookies">
+              <Icon icon="ph:check-circle-duotone" /> 同意
+            </button>
+            <button class="cookie-consent-btn cookie-consent-btn--ghost" type="button" @click="declineCookies">
+              拒绝
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </section>
 </template>
 

@@ -91,7 +91,7 @@ function leaveRoom() {
           <div v-for="(p, pi) in entry.players" :key="pi" class="mrp-board" :class="p.player_id === myPlayerId ? 'mrp-board-mine' : 'mrp-board-opponent'">
             <h3 class="mrp-board-title">
               <Icon :icon="p.player_id === myPlayerId ? 'ph:user-duotone' : 'ph:users-duotone'" :class="p.player_id === myPlayerId ? 'mrp-board-icon--mine' : 'mrp-board-icon--opponent'" />
-              {{ p.player_id === myPlayerId ? '我方猜测' : `对方猜测` }} <span class="mrp-player-id">({{ p.player_id }})</span>
+              {{ p.player_id === myPlayerId ? '我方猜测' : `对方猜测` }} <span class="mrp-player-id">({{ p.player_id }}{{ p.db_id != null ? ` #${p.db_id}` : '' }})</span>
             </h3>
             <GuessTable :quiz-type="roomState.quizType" :rows="(p.guesses as any) ?? []" empty-label="-" :target-version="entry.target ? ('version' in entry.target ? Number((entry.target as any).version) : null) : roomState.targetVersion" :target-cost="entry.target ? ('cost' in entry.target ? Number((entry.target as any).cost) : null) : roomState.targetCost" force-reveal />
           </div>

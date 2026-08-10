@@ -176,14 +176,21 @@ onBeforeUnmount(() => stopPolling());
 <template>
   <AdminShell>
     <section class="ad-card">
-      <h2 class="ad-card-title"><Icon icon="ph:git-diff-duotone" class="ad-card-icon" /> 对比 &amp; 同步</h2>
-      <p class="ad-card-desc">拉取远程数据与本地对比，选择差异条目同步到数据库</p>
-      <div class="ad-btn-row">
-        <button class="btn" :disabled="syncing" @click="loadPreview">
-          <Icon icon="ph:magnifying-glass-duotone" class="btn-icon" />
-          {{ syncing ? "对比中..." : "对比差异" }}
-        </button>
-        <button v-if="preview" class="btn-ghost" :disabled="syncing" @click="preview = null; syncResult = null; syncError = ''">清除</button>
+      <div class="ad-card-head">
+        <div class="ad-card-head-left">
+          <h2 class="ad-card-title"><Icon icon="ph:git-diff-duotone" class="ad-card-icon" /> 对比 &amp; 同步</h2>
+          <p class="ad-card-desc">拉取远程数据与本地对比，选择差异条目同步到数据库</p>
+        </div>
+        <div class="ad-card-head-right">
+          <button class="btn" :disabled="syncing" @click="loadPreview">
+            <Icon v-if="syncing" icon="ph:spinner-gap-bold" class="ph-spin" />
+            <Icon v-else icon="ph:magnifying-glass-duotone" />
+            {{ syncing ? "对比中..." : "对比差异" }}
+          </button>
+          <button v-if="preview" class="btn-ghost btn-sm" :disabled="syncing" @click="preview = null; syncResult = null; syncError = ''">
+            <Icon icon="ph:x-duotone" /> 清除
+          </button>
+        </div>
       </div>
       <div v-if="syncError" class="ad-error">{{ syncError }}</div>
     </section>
@@ -191,11 +198,13 @@ onBeforeUnmount(() => stopPolling());
     <template v-if="preview">
       <template v-for="(r, key) in { characters: preview.characters, echoes: preview.echoes }" :key="key">
         <section v-if="(r as DiffResult)?.ok" class="ad-card">
-          <h3 class="ad-card-title">{{ tableTitle(key as AdminRecordKind) }} — 远程{{ (r as DiffResult).total_remote }}/本地{{ (r as DiffResult).total_local }}</h3>
+          <div class="ad-card-head">
+            <h3 class="ad-card-title">{{ tableTitle(key as AdminRecordKind) }} <span class="ad-count-pill">远程 {{ (r as DiffResult).total_remote }} · 本地 {{ (r as DiffResult).total_local }}</span></h3>
+          </div>
           <div class="ad-stat-row">
-            <span class="ad-stat-pill ad-stat-pill--new">新增{{ (r as DiffResult).new?.length || 0 }}</span>
-            <span class="ad-stat-pill ad-stat-pill--changed">变更{{ (r as DiffResult).changed?.length || 0 }}</span>
-            <span class="ad-stat-pill">未变{{ (r as DiffResult).unchanged }}</span>
+            <span class="ad-stat-pill ad-stat-pill--new"><Icon icon="ph:plus-duotone" /> 新增{{ (r as DiffResult).new?.length || 0 }}</span>
+            <span class="ad-stat-pill ad-stat-pill--changed"><Icon icon="ph:pencil-simple-duotone" /> 变更{{ (r as DiffResult).changed?.length || 0 }}</span>
+            <span class="ad-stat-pill"><Icon icon="ph:check-duotone" /> 未变{{ (r as DiffResult).unchanged }}</span>
           </div>
           <div v-if="!(r as DiffResult).new?.length && !(r as DiffResult).changed?.length" class="ad-no-diff"><Icon icon="ph:check-circle-duotone" /> 已是最新</div>
           <template v-if="(r as DiffResult).new?.length || (r as DiffResult).changed?.length">
@@ -235,22 +244,25 @@ onBeforeUnmount(() => stopPolling());
       <section class="ad-card">
         <div class="ad-btn-row">
           <button class="btn" :disabled="syncing || !diffActions.size" @click="triggerSync">
-            <Icon icon="ph:cloud-arrow-down-duotone" class="btn-icon" />
+            <Icon v-if="syncing" icon="ph:spinner-gap-bold" class="ph-spin" />
+            <Icon v-else icon="ph:cloud-arrow-down-duotone" />
             {{ syncing ? `同步中... (${Math.round(syncElapsed / 1000)}s)` : `应用${diffActions.size ? `${diffActions.size}项` : "全部"}` }}
           </button>
-          <button v-if="diffActions.size" class="btn-ghost" @click="diffActions = new Map()">全部保留本地</button>
+          <button v-if="diffActions.size" class="btn-ghost btn-sm" @click="diffActions = new Map()">
+            <Icon icon="ph:arrow-u-up-left-duotone" /> 全部保留本地
+          </button>
         </div>
       </section>
     </template>
 
     <template v-if="syncResult">
       <section class="ad-card">
-        <h2 class="ad-card-title">同步结果</h2>
+        <h2 class="ad-card-title"><Icon icon="ph:flag-checkered-duotone" class="ad-card-icon" /> 同步结果</h2>
         <template v-if="syncResult.ok === false">
-          <p class="ad-result-error">{{ syncResult.message }}</p>
+          <div class="ad-error"><Icon icon="ph:warning-duotone" /> {{ syncResult.message }}</div>
         </template>
         <template v-else>
-          <div class="ad-stat-row"><span class="ad-stat-pill">同步完成</span></div>
+          <div class="ad-no-diff"><Icon icon="ph:check-circle-duotone" /> 同步完成</div>
         </template>
       </section>
     </template>
