@@ -6,7 +6,7 @@ import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
 import { desc, eq, and, gt, lt, sql, lte } from 'drizzle-orm';
 
-import { createDb, characters, soundSkeletons, players, adminLogs, acknowledgements } from '../../src/lib/db';
+import { createDb, characters, soundSkeletons, players, adminLogs, acknowledgements, adminSessions, adminSyncState } from '../../src/lib/db';
 import {
   buildCompareByType, allMatch, normalizeRow, toFrontendRow,
   type QuizType, type CompareResult,
@@ -16,6 +16,7 @@ import {
   authenticatePlayer, applySingleScore, setPassword,
   updatePlayerId, upsertPlayerTarget, getPlayerTarget, deletePlayerTarget,
   incrementPlayerTargetAttempts, verifyPasswordDetailed,
+  markPlayerTargetExpired, cleanupExpiredPlayerTargets,
 } from '../../src/lib/players';
 import {
   createCaptcha as libCreateCaptcha, storeCaptcha, verifyCaptcha as libVerifyCaptcha,
@@ -25,12 +26,13 @@ import { generateToken, hmacSha256Hex, timingSafeEqualStrings } from '../../src/
 // ── Environment types ──────────────────────────────────────────────
 type Bindings = {
   DB: D1Database;
-  KV: KVNamespace;
   SECRET_KEY: string;
   ADMIN_USER: string;
   ADMIN_PASSWORD: string;
   SESSION_TTL: string;
   CAPTCHA_TTL: string;
+  UPSTASH_REDIS_URL: string;
+  UPSTASH_REDIS_TOKEN: string;
 };
 
 type HonoEnv = {
@@ -131,65 +133,13 @@ async function requirePlayerAuth(c: any): Promise<PlayerAuthResult> {
 // ── Health ─────────────────────────────────────────────────────────
 app.get('/api/health', (c) => c.json(success({})));
 
-// ── 全站在线人数统计 ──────────────────────────────────────────────
-// 基于 KV online:{clientId} 心跳记录（TTL=60s），统计仍活跃的访客数
-// 前端在 App.vue 全局发送心跳（已登录用 playerId，匿名用 localStorage 生成的 guest ID）
-const ONLINE_KV_PREFIX_STATS = 'online:';
-const ONLINE_KV_TTL_STATS = 60;
-
-app.post('/api/stats/heartbeat', async (c) => {
-  try {
-    const body = await readJson(c);
-    const clientId = String(body.client_id ?? '').trim();
-    if (!clientId || clientId.length > 128) {
-      return error('无效的 client_id');
-    }
-    await c.env.KV.put(ONLINE_KV_PREFIX_STATS + clientId, String(Date.now()), {
-      expirationTtl: ONLINE_KV_TTL_STATS,
-    });
-    return c.json(success({}));
-  } catch (e) {
-    console.warn('[stats/heartbeat] KV error:', e);
-    return c.json(success({})); // 静默失败
-  }
-});
-
-app.get('/api/stats/online', async (c) => {
-  try {
-    // KV.list() 最多一次返回 1000 条，对于中小规模站点足够；
-    // 若后续超过 1000 在线，需要改为计数器方案
-    let onlineCount = 0;
-    let cursor: string | undefined = undefined;
-    const MAX_PAGES = 10; // 最多翻 10 页（10000 在线），防止无限循环
-    let pages = 0;
-    do {
-      const list: KVNamespaceListResult<unknown> = await c.env.KV.list({ prefix: ONLINE_KV_PREFIX_STATS, cursor });
-      onlineCount += list.keys.length;
-      cursor = list.list_complete ? undefined : list.cursor;
-      pages += 1;
-      if (pages >= MAX_PAGES) break;
-    } while (cursor);
-    return c.json(success({
-      online_count: onlineCount,
-      updated_at: Date.now(),
-    }));
-  } catch (e) {
-    // KV 出错时降级：返回 0，不影响前端其他功能
-    console.warn('[stats/online] KV error:', e);
-    return c.json(success({
-      online_count: 0,
-      updated_at: Date.now(),
-      degraded: true,
-    }));
-  }
-});
-
 // ── Captcha ────────────────────────────────────────────────────────
 app.get('/api/auth/captcha', async (c) => {
+  const db = c.get('db');
   const captcha = libCreateCaptcha();
   const ttl = parseInt(c.env.CAPTCHA_TTL ?? '180', 10);
   const expire = Date.now() / 1000 + ttl;
-  await storeCaptcha(c.env.KV, { ...captcha, expire }, ttl);
+  await storeCaptcha(db, { ...captcha, expire });
   return c.json(success({ captcha_id: captcha.captcha_id, image: captcha.image }));
 });
 
@@ -240,6 +190,20 @@ app.post('/api/player/score', async (c) => {
   return c.json(success({ player: publicPlayer(p), delta: 0 }));
 });
 
+// ── 玩家离开页面：标记目标会话 10s 后过期 ─────────────────────────
+//   前端 pagehide 事件通过 sendBeacon 调用，sendBeacon 不支持自定义 header，
+//   所以 auth 走 body/query 回退（readPlayerAuth 三级回退已覆盖）。
+app.post('/api/player/leave', async (c) => {
+  const db = c.get('db');
+  const authed = await requirePlayerAuth(c);
+  if (authed.ok) {
+    await markPlayerTargetExpired(db, authed.auth.player_id);
+  }
+  // 顺带惰性清理已过期会话
+  await cleanupExpiredPlayerTargets(db);
+  return c.json(success({}));
+});
+
 // ── Auth (Register / Login / Logout) ───────────────────────────────
 app.post('/api/auth/register', async (c) => {
   const db = c.get('db');
@@ -251,7 +215,7 @@ app.post('/api/auth/register', async (c) => {
   if (!username) return error('账号不能为空');
   if (username.length > 64) return error('账号过长（最多64字符）');
   if (password.length < 6) return error('密码至少 6 位');
-  const captchaOk = await libVerifyCaptcha(c.env.KV, captchaId, captchaText);
+  const captchaOk = await libVerifyCaptcha(db, captchaId, captchaText);
   if (!captchaOk) return error('验证码错误或已过期');
 
   try {
@@ -295,7 +259,7 @@ app.post('/api/auth/login', async (c) => {
   const captchaId = String(body.captcha_id ?? '').trim();
   const captchaText = String(body.captcha_text ?? '').trim();
   if (!username || !password) return error('请输入账号和密码');
-  const captchaOk = await libVerifyCaptcha(c.env.KV, captchaId, captchaText);
+  const captchaOk = await libVerifyCaptcha(db, captchaId, captchaText);
   if (!captchaOk) return error('验证码错误或已过期');
   const p = await getPlayer(db, username);
   if (!p) return error('账号不存在', 404);
@@ -401,7 +365,7 @@ app.post('/api/auth/upgrade-password', async (c) => {
   if (!oldPasswordHash) return error('请提供旧密码验证');
   if (newPassword.length < 6) return error('密码至少 6 位');
 
-  const captchaOk = await libVerifyCaptcha(c.env.KV, captchaId, captchaText);
+  const captchaOk = await libVerifyCaptcha(db, captchaId, captchaText);
   if (!captchaOk) return error('验证码错误或已过期');
 
   const p = await getPlayer(db, username);
@@ -494,6 +458,8 @@ app.get('/api/draw', async (c) => {
 
 app.post('/api/draw', async (c) => {
   const db = c.get('db');
+  // 惰性清理：删除已过期的目标会话（玩家关闭网页 10s 后到期）
+  await cleanupExpiredPlayerTargets(db);
   const body = await readJson(c);
   const quizType = (String(body.type ?? 'resonator').trim() || 'resonator') as QuizType;
   const difficulty = String(body.difficulty ?? 'normal').trim() || 'normal';
@@ -515,6 +481,8 @@ app.post('/api/draw', async (c) => {
 // ── Guess ───────────────────────────────────────────────────────────
 app.post('/api/guess', async (c) => {
   const db = c.get('db');
+  // 惰性清理：删除已过期的目标会话（玩家关闭网页 10s 后到期）
+  await cleanupExpiredPlayerTargets(db);
   const body = await readJson(c);
   const guessName = String(body.guess ?? '').trim();
   if (!guessName) return error('请输入名称');
@@ -643,7 +611,6 @@ app.get('/api/leaderboard', async (c) => {
 });
 
 // ── Admin helpers ───────────────────────────────────────────────────
-const ADMIN_SESSION_PREFIX = 'admin_session:';
 const _rateWindow: Record<string, number[]> = {};
 const RATE_LIMIT = 5;
 const RATE_WINDOW_SEC = 60;
@@ -667,18 +634,12 @@ async function makeAdminToken(env: Bindings, username: string): Promise<string> 
   return `${sig}:${payload}`;
 }
 
-async function verifyAdminToken(env: Bindings, token: string): Promise<boolean> {
+async function verifyAdminToken(db: ReturnType<typeof createDb>, token: string): Promise<boolean> {
   if (!token) return false;
-  const raw = await env.KV.get(ADMIN_SESSION_PREFIX + token);
-  if (!raw) return false;
-  let expiry = 0;
-  try {
-    expiry = JSON.parse(raw).expiry;
-  } catch {
-    return false;
-  }
-  if (Date.now() / 1000 > expiry) {
-    await env.KV.delete(ADMIN_SESSION_PREFIX + token);
+  const rows = await db.select().from(adminSessions).where(eq(adminSessions.token, token)).limit(1);
+  if (rows.length === 0) return false;
+  if (Date.now() / 1000 > rows[0].expiry) {
+    await db.delete(adminSessions).where(eq(adminSessions.token, token));
     return false;
   }
   return true;
@@ -686,7 +647,7 @@ async function verifyAdminToken(env: Bindings, token: string): Promise<boolean> 
 
 async function requireAdmin(c: any): Promise<Response | null> {
   const token = String(c.req.header('X-Admin-Token') ?? '');
-  const ok = await verifyAdminToken(c.env, token);
+  const ok = await verifyAdminToken(c.get('db'), token);
   if (!ok) return error('未授权，请先登录', 401, 'ADMIN_AUTH_REQUIRED');
   return null;
 }
@@ -719,15 +680,16 @@ app.post('/api/admin/login', async (c) => {
   if (!userOk || !passOk) return error('账号或密码错误', 401);
   const token = await makeAdminToken(c.env, username);
   const ttl = parseInt(c.env.SESSION_TTL ?? '7200', 10);
-  await c.env.KV.put(ADMIN_SESSION_PREFIX + token, JSON.stringify({ expiry: Date.now() / 1000 + ttl }), {
-    expirationTtl: ttl + 60,
-  });
+  const db = c.get('db');
+  // 清理过期会话，避免表膨胀
+  await db.delete(adminSessions).where(lt(adminSessions.expiry, Math.floor(Date.now() / 1000)));
+  await db.insert(adminSessions).values({ token, expiry: Math.floor(Date.now() / 1000 + ttl) });
   return c.json(success({ token }));
 });
 
 app.post('/api/admin/logout', async (c) => {
   const token = String(c.req.header('X-Admin-Token') ?? '');
-  if (token) await c.env.KV.delete(ADMIN_SESSION_PREFIX + token);
+  if (token) await c.get('db').delete(adminSessions).where(eq(adminSessions.token, token));
   return c.json(success({}));
 });
 
@@ -817,17 +779,29 @@ app.post('/api/admin/update', async (c) => {
 
 // Simplified sync stubs (since we don't have Python nanoka_scraper in TS)
 // In production these would call the original scraper endpoints or a scheduled Worker
-const SYNC_STATE_KEY = 'admin_sync_state';
 type SyncState = { status: 'running' | 'idle'; result?: unknown };
+
+async function getSyncState(db: ReturnType<typeof createDb>): Promise<SyncState> {
+  const rows = await db.select().from(adminSyncState).where(eq(adminSyncState.id, 1)).limit(1);
+  if (rows.length === 0) return { status: 'idle' };
+  const row = rows[0];
+  let result: unknown;
+  if (row.resultJson) {
+    try { result = JSON.parse(row.resultJson); } catch { /* ignore */ }
+  }
+  return { status: row.status === 'running' ? 'running' : 'idle', result };
+}
+
+async function setSyncState(db: ReturnType<typeof createDb>, status: 'running' | 'idle', result?: unknown): Promise<void> {
+  const resultJson = result !== undefined ? JSON.stringify(result) : null;
+  await db.insert(adminSyncState).values({ id: 1, status, resultJson })
+    .onConflictDoUpdate({ target: adminSyncState.id, set: { status, resultJson } });
+}
 
 app.get('/api/admin/sync/status', async (c) => {
   const denied = await requireAdmin(c);
   if (denied) return denied;
-  const raw = await c.env.KV.get(SYNC_STATE_KEY);
-  let state: SyncState = { status: 'idle' };
-  if (raw) {
-    try { state = JSON.parse(raw); } catch { /* ignore */ }
-  }
+  const state = await getSyncState(c.get('db'));
   return c.json({ status: state.status === 'running' ? 'running' : 'idle', result: state.result ?? null });
 });
 
@@ -857,11 +831,8 @@ app.post('/api/admin/sync/preview', async (c) => {
 app.post('/api/admin/sync', async (c) => {
   const denied = await requireAdmin(c);
   if (denied) return denied;
-  const raw = await c.env.KV.get(SYNC_STATE_KEY);
-  let state: SyncState = { status: 'idle' };
-  if (raw) {
-    try { state = JSON.parse(raw); } catch { /* ignore */ }
-  }
+  const db = c.get('db');
+  const state = await getSyncState(db);
   if (state.status === 'running') {
     return new Response(JSON.stringify({ status: 'busy', message: '同步任务已在运行中' }), {
       status: 409, headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -869,11 +840,10 @@ app.post('/api/admin/sync', async (c) => {
   }
   const body = await readJson(c);
   const syncType = String(body.type ?? 'all').trim();
-  const db = c.get('db');
   await appendLog(db, 'INFO', `sync ${syncType} started (stub — TS version placeholder)`);
 
   // Mark running, then complete with stub result (since nanoka_scraper.py isn't ported)
-  await c.env.KV.put(SYNC_STATE_KEY, JSON.stringify({ status: 'running' }));
+  await setSyncState(db, 'running');
   // In a real deployment, this could go to a Queue + Worker
   const stubResult: Record<string, unknown> = {
     ok: false,
@@ -885,7 +855,7 @@ app.post('/api/admin/sync', async (c) => {
     stubResult.characters = { created: 0, updated: 0, deleted: 0 };
     stubResult.echoes = { created: 0, updated: 0, deleted: 0 };
   }
-  await c.env.KV.put(SYNC_STATE_KEY, JSON.stringify({ status: 'idle', result: stubResult }));
+  await setSyncState(db, 'idle', stubResult);
   await appendLog(db, 'INFO', `sync ${syncType} completed (stub)`);
   return c.json({ status: 'started', message: '同步任务已启动（TS版本占位，若需真实爬虫请扩展Queue Worker）' });
 });
@@ -971,6 +941,93 @@ app.delete('/api/admin/acknowledgements/:id', async (c) => {
   if (!exists.length) return error('记录不存在', 404);
   await db.delete(acknowledgements).where(eq(acknowledgements.id, id));
   await appendLog(db, 'INFO', `ack delete #${id}`);
+  return c.json(success({}));
+});
+
+// ── Online count (Upstash Redis) ────────────────────────────────────
+const ONLINE_KEY = 'online';
+const ONLINE_TTL_SEC = 60; // 60s 无心跳即视为离线
+
+async function upstashPipeline(env: Bindings, commands: string[][]): Promise<any[]> {
+  const res = await fetch(`${env.UPSTASH_REDIS_URL}/pipeline`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.UPSTASH_REDIS_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(commands),
+  });
+  if (!res.ok) {
+    throw new Error(`Upstash error: ${res.status}`);
+  }
+  return res.json();
+}
+
+function hasUpstash(env: Bindings): boolean {
+  return !!(env.UPSTASH_REDIS_URL && env.UPSTASH_REDIS_TOKEN);
+}
+
+// 心跳：ZADD + 清理过期 + ZCOUNT，一次 pipeline 搞定
+app.post('/api/online/heartbeat', async (c) => {
+  const body = await readJson(c);
+  const clientId = String(body.client_id ?? '').trim();
+  if (!clientId || clientId.length > 64) return error('无效的客户端ID');
+
+  const configured = hasUpstash(c.env);
+  if (!configured) {
+    return c.json(success({ count: 0, configured: false }));
+  }
+  try {
+    const now = Date.now();
+    const cutoff = now - ONLINE_TTL_SEC * 1000;
+    const results = await upstashPipeline(c.env, [
+      ['ZADD', ONLINE_KEY, String(now), clientId],
+      ['ZREMRANGEBYSCORE', ONLINE_KEY, '0', String(cutoff)],
+      ['ZCOUNT', ONLINE_KEY, String(cutoff), String(now)],
+    ]);
+    const count = results?.[2]?.result ?? 0;
+    return c.json(success({ count, configured: true }));
+  } catch (e) {
+    console.warn('[online] heartbeat upstash error:', e);
+    return c.json(success({ count: 0, configured: false }));
+  }
+});
+
+// 仅查询在线人数（不心跳）
+app.get('/api/online/count', async (c) => {
+  const configured = hasUpstash(c.env);
+  if (!configured) {
+    return c.json(success({ count: 0, configured: false }));
+  }
+  try {
+    const now = Date.now();
+    const cutoff = now - ONLINE_TTL_SEC * 1000;
+    const results = await upstashPipeline(c.env, [
+      ['ZREMRANGEBYSCORE', ONLINE_KEY, '0', String(cutoff)],
+      ['ZCOUNT', ONLINE_KEY, String(cutoff), String(now)],
+    ]);
+    const count = results?.[1]?.result ?? 0;
+    return c.json(success({ count, configured: true }));
+  } catch (e) {
+    console.warn('[online] count upstash error:', e);
+    return c.json(success({ count: 0, configured: false }));
+  }
+});
+
+// 离开：ZREM 移除自身
+app.post('/api/online/leave', async (c) => {
+  if (!hasUpstash(c.env)) {
+    return c.json(success({}));
+  }
+  try {
+    const body = await readJson(c);
+    const clientId = String(body.client_id ?? '').trim();
+    if (clientId) {
+      await upstashPipeline(c.env, [['ZREM', ONLINE_KEY, clientId]]);
+    }
+  } catch (e) {
+    console.warn('[online] leave upstash error:', e);
+  }
   return c.json(success({}));
 });
 

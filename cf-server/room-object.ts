@@ -61,6 +61,8 @@ export class RoomObject extends DurableObject {
   private timerPaused: boolean = false;
   // 重连宽限期：30 秒，覆盖页面刷新 + 自动重连耗时
   private readonly RECONNECT_GRACE_MS: number = 30000;
+  // 是否已向 MatchmakerObject 发送过 notifyMatchEnded（防止 endMatch+destroyRoom 重复 RPC）
+  private _matchEndedNotified: boolean = false;
 
   // WebSocket 管理
   private connections: Map<string, WebSocket> = new Map();
@@ -98,17 +100,21 @@ export class RoomObject extends DurableObject {
       }
 
       // 恢复后：处理重连宽限期（DO 冬眠唤醒场景）
-      // 现在 waiting / countdown / playing / finished 所有阶段都可能处于重连宽限期
-      if (this.disconnectedPlayers.size > 0) {
+      if (this.roomStatus === 'playing' && this.disconnectedPlayers.size > 0) {
         const remaining = this.graceDeadline - Date.now();
         if (remaining <= 0) {
-          // 宽限期在冬眠期间已过期：走统一过期逻辑
-          this.handleGraceExpired();
-        } else {
-          // 用剩余时间重启宽限计时器；playing 阶段保持计时暂停
-          if (this.roomStatus === 'playing') {
-            this.timerPaused = true;
+          // 宽限期在冬眠期间已过期：直接结算
+          if (this.disconnectedPlayers.size >= this.players.length) {
+            this.disconnectedPlayers.clear();
+          } else {
+            this.forfeitBy = this.disconnectedPlayers.values().next().value || null;
+            this.disconnectedPlayers.clear();
           }
+          this.timerPaused = false;
+          await this.endMatch();
+        } else {
+          // 用剩余时间重启宽限计时器，游戏计时保持暂停
+          this.timerPaused = true;
           this.reconnectTimer = setTimeout(() => {
             this.handleGraceExpired();
           }, remaining) as unknown as number;
@@ -297,35 +303,33 @@ export class RoomObject extends DurableObject {
     const wasPlayer = this.players.find(p => p.playerId === playerId);
 
     if (wasPlayer) {
-      // 整场对局的任意阶段（waiting / countdown / playing / finished）
-      // 两人都在场时给予 30 秒断线重连宽限期，避免页面刷新或网络抖动误判退出
-      if (this.players.length === 2) {
-        // playing 阶段需要额外暂停游戏计时
-        if (this.roomStatus === 'playing') {
-          this.pauseGameTimer();
+      // 如果游戏已结束，把断开视为退出房间（让剩余玩家能继续查看数据）
+      if (this.roomStatus === 'finished') {
+        this.exitedPlayers.add(playerId);
+        // 如果两个玩家都已退出/断开，销毁房间
+        if (this.players.every(p => this.exitedPlayers.has(p.playerId))) {
+          this.destroyRoom();
+          return;
         }
-        // finished 阶段不要直接加入 exitedPlayers，给予重连机会再决定是否退出
-        this.disconnectedPlayers.add(playerId);
-        this.startReconnectGrace();
+        // 通知仍在房间的玩家：对手已离开
         this.broadcastState();
         this.persistState();
         return;
       }
 
-      // 仅单人在房间（对手已退出等）或未识别为玩家的连接：按旧逻辑直接移除
-      if (this.roomStatus === 'finished') {
-        this.exitedPlayers.add(playerId);
-        if (this.players.every(p => this.exitedPlayers.has(p.playerId))) {
-          this.destroyRoom();
-          return;
-        }
+      // 游戏中断开连接：启动重连宽限期，而非立即判负
+      // 玩家可能只是刷新页面或网络抖动，给 30 秒重连窗口
+      if (this.roomStatus === 'playing' && this.players.length === 2) {
+        this.disconnectedPlayers.add(playerId);
+        this.pauseGameTimer();
+        this.startReconnectGrace();
         this.broadcastState();
         this.persistState();
         return;
       }
     }
 
-    // 单人 / 非玩家 等边界情况：直接移除
+    // waiting/countdown 阶段断开：直接移除玩家
     this.players = this.players.filter(p => p.playerId !== playerId);
     if (this.creator === playerId) {
       this.creator = this.players[0]?.playerId || '';
@@ -370,10 +374,10 @@ export class RoomObject extends DurableObject {
         await this.handleResumeRoom(playerId);
         break;
       case C2S.PLAYER_READY:
-        await this.handlePlayerReady(playerId);
+        this.handlePlayerReady(playerId);
         break;
       case C2S.START_MATCH:
-        await this.handleStartMatch(playerId);
+        this.handleStartMatch(playerId);
         break;
       default:
         this.sendToPlayer(playerId, S2C.ERROR, { message: `未知消息类型: ${type}` });
@@ -471,8 +475,8 @@ export class RoomObject extends DurableObject {
     this.broadcast(S2C.ROOM_JOINED, { roomCode: this.roomCode });
     this.broadcastState();
 
-    // 仅随机匹配路径在两人齐聚后自动开始倒计时；
-    // "创建房间"路径需要玩家点"准备"、房主点"开始"才会开始（见 handlePlayerReady/handleStartMatch）
+    // 仅随机匹配路径：2 名玩家都在房间时才自动开始倒计时
+    // 创建房间路径：需玩家点"准备" + 房主点"开始对局"才开始
     if (this.players.length === 2 && this.isRandomMatch) {
       this.opponentId = this.players.find(p => p.playerId !== playerId)?.playerId || '';
       // 延迟开始倒计时：给加入的玩家足够时间完成路由跳转和组件挂载
@@ -860,6 +864,17 @@ export class RoomObject extends DurableObject {
 
     this.broadcastState();
     await this.persistState();
+
+    // 比赛正式结束：立即通知 MatchmakerObject 从活跃对局计数中移除
+    // （之前放在 destroyRoom 导致延迟——玩家查看比分时仍被计入"对局中"）
+    // fire-and-forget：不阻塞 broadcast/101 响应；destroyRoom 处的重复调用由 MatchmakerObject has() 判断幂等忽略
+    if (this.isRandomMatch && this.roomCode && !this._matchEndedNotified) {
+      this._matchEndedNotified = true;
+      try {
+        const stub = this.env.MATCHMAKER.get(this.env.MATCHMAKER.idFromName('default')) as unknown as MatchmakerRpc;
+        stub.notifyMatchEnded(this.roomCode).catch(() => {});
+      } catch { /* ignore */ }
+    }
   }
 
   // ── 玩家离开 ──
@@ -895,7 +910,7 @@ export class RoomObject extends DurableObject {
   // ── 销毁房间（当所有玩家都退出时调用） ──
   private destroyRoom(): void {
     // 通知 MatchmakerObject 减少活跃对局计数（仅随机匹配房间）
-    // fire-and-forget：不阻塞房间销毁流程
+    // fire-and-forget：不阻塞房间销毁流程，RPC 失败由 30 分钟兜底清理修正
     if (this.isRandomMatch && this.roomCode) {
       try {
         const stub = this.env.MATCHMAKER.get(this.env.MATCHMAKER.idFromName('default')) as unknown as MatchmakerRpc;
@@ -931,7 +946,7 @@ export class RoomObject extends DurableObject {
     }
 
     this.rematchVotes.push(playerId);
-
+    
     // 需要双方都同意
     const allAgreed = this.players.every(p => this.rematchVotes.includes(p.playerId));
     if (allAgreed && this.players.length >= 2) {
@@ -956,20 +971,33 @@ export class RoomObject extends DurableObject {
         player.attemptsLimit = limit;
         player.guesses = [];
         player.roundWins = 0;
-        // 创建房间路径下重置准备状态，等待玩家重新准备；随机匹配路径不使用此字段
         player.ready = false;
       }
 
       if (this.isRandomMatch) {
-        // 随机匹配：双方同意后自动开始倒计时
+        // 重赛：重置 notify 标记并重新向 MatchmakerObject 注册为活跃对局
+        // （roomCode 不变，notifyMatchEnded 在 endMatch 时已经移除，需重新 set）
+        this._matchEndedNotified = false;
+        // 通过 RPC 反向通道 re-register：复用 MatchmakerObject 已通过 HTTP 暴露的 GET 路径不便做写入
+        // 改为 fire-and-forget 专用 reRegister 方法不存在的情况下，直接通过 fetch 发 POST：
+        // 简化方案：在 MatchmakerObject 上暴露 reRegisterRoom。但 RPC 更简洁——我们新增一个 reRegisterRoom RPC。
+        // 为避免接口膨胀，这里直接构造一个简单的 RPC 风格调用：
+        // MatchmakerObject 通过 fetch(method=GET) 只读，我们走 notifyMatchEnded 对称的接口：
+        // 新增 registerRoom(roomCode) RPC 方法，见 matchmaker-object.ts。
+        try {
+          type MmRpcWithRegister = MatchmakerRpc & {
+            registerRoom(roomCode: string): Promise<void>;
+          };
+          const stub = this.env.MATCHMAKER.get(this.env.MATCHMAKER.idFromName('default')) as unknown as MmRpcWithRegister;
+          stub.registerRoom(this.roomCode).catch(() => {});
+        } catch { /* ignore */ }
+        // 随机匹配路径：双方同意后自动开始倒计时
         this.startCountdown();
-      } else {
-        // 创建房间路径：回到 waiting，需要重新准备 + 房主手动开始
-        this.broadcastState();
       }
+      // 创建房间路径：双方同意后回到 waiting，不自动倒计时，需重新点准备+开始
     } else {
       this.broadcast(S2C.MATCHING, {
-        message: `等待另一位玩家同意继续游戏 (${this.rematchVotes.length}/${this.players.length})`,
+        message: `等待另一位玩家同意重新开始 (${this.rematchVotes.length}/${this.players.length})`,
         inQueue: true,
       });
     }
@@ -987,45 +1015,36 @@ export class RoomObject extends DurableObject {
     }
   }
 
-  // ── 玩家标记已准备（仅"创建房间"路径） ──
-  private async handlePlayerReady(playerId: string): Promise<void> {
-    // 随机匹配路径不使用准备机制，准备消息无效
+  // ── 玩家准备（仅创建房间路径） ──
+  private handlePlayerReady(playerId: string): void {
     if (this.isRandomMatch) {
-      this.sendToPlayer(playerId, S2C.ERROR, { message: '当前房间无需准备' });
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '随机匹配无需手动准备' });
       return;
     }
     if (this.roomStatus !== 'waiting') {
-      this.sendToPlayer(playerId, S2C.ERROR, { message: '对局已开始或已结束' });
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '当前阶段无法准备' });
+      return;
+    }
+    // 房主不参与准备（ready 恒 false），仅非房主玩家可以 ready
+    if (this.creator === playerId) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '房主无需准备，直接开始对局即可' });
       return;
     }
     const player = this.players.find(p => p.playerId === playerId);
-    if (!player) {
-      this.sendToPlayer(playerId, S2C.ERROR, { message: '未在房间中' });
-      return;
-    }
-    // 房主无需准备：房主通过"开始对局"按钮启动
-    if (this.creator === playerId) {
-      this.sendToPlayer(playerId, S2C.ERROR, { message: '房主请直接点击开始对局' });
-      return;
-    }
-    if (player.ready) {
-      // 已准备，幂等处理：不再重复广播
-      return;
-    }
+    if (!player) return;
     player.ready = true;
     this.broadcastState();
-    await this.persistState();
+    this.persistState(); // fire-and-forget
   }
 
-  // ── 房主手动开始对局（仅"创建房间"路径） ──
-  private async handleStartMatch(playerId: string): Promise<void> {
-    // 随机匹配路径不使用手动开始
+  // ── 房主开始对局（仅创建房间路径） ──
+  private handleStartMatch(playerId: string): void {
     if (this.isRandomMatch) {
-      this.sendToPlayer(playerId, S2C.ERROR, { message: '当前房间无需手动开始' });
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '随机匹配会自动开始，无需手动开始' });
       return;
     }
     if (this.roomStatus !== 'waiting') {
-      this.sendToPlayer(playerId, S2C.ERROR, { message: '对局已开始或已结束' });
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '当前阶段无法开始对局' });
       return;
     }
     if (this.creator !== playerId) {
@@ -1033,19 +1052,18 @@ export class RoomObject extends DurableObject {
       return;
     }
     if (this.players.length < 2) {
-      this.sendToPlayer(playerId, S2C.ERROR, { message: '等待对手加入房间' });
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '需要 2 名玩家才能开始对局' });
       return;
     }
-    // 要求所有非房主玩家都已准备
-    const allReady = this.players
-      .filter(p => p.playerId !== this.creator)
-      .every(p => p.ready);
-    if (!allReady) {
-      this.sendToPlayer(playerId, S2C.ERROR, { message: '对手尚未准备' });
+    // 非房主玩家必须已准备
+    const nonCreator = this.players.find(p => p.playerId !== this.creator);
+    if (!nonCreator || !nonCreator.ready) {
+      this.sendToPlayer(playerId, S2C.ERROR, { message: '等待另一位玩家准备完毕' });
       return;
     }
-    this.opponentId = this.players.find(p => p.playerId !== playerId)?.playerId || '';
+    this.opponentId = nonCreator.playerId;
     this.startCountdown();
+    this.persistState(); // fire-and-forget
   }
 
   // ── 辅助方法 ──
@@ -1073,7 +1091,6 @@ export class RoomObject extends DurableObject {
       roundWins: 0,
       attemptsUsed: 0,
       attemptsLimit: this.quizType === 'resonator' ? 4 : 8,
-      // 默认未准备；仅"创建房间"路径使用，随机匹配路径不依赖此字段
       ready: false,
       guesses: [],
     });
@@ -1238,59 +1255,21 @@ export class RoomObject extends DurableObject {
 
   private handleGraceExpired(): void {
     this.reconnectTimer = null;
+    if (this.roomStatus !== 'playing') return;
     if (this.disconnectedPlayers.size === 0) return;
 
-    // finished 阶段：宽限过期后把断线的玩家视为真正退出（加入 exitedPlayers）
-    if (this.roomStatus === 'finished') {
-      for (const pid of this.disconnectedPlayers) {
-        this.exitedPlayers.add(pid);
-      }
+    if (this.disconnectedPlayers.size >= this.players.length) {
+      // 所有玩家都断开且未重连：平局，不设胜负
       this.disconnectedPlayers.clear();
-      // 如果两个玩家都已退出，销毁房间
-      if (this.players.every(p => this.exitedPlayers.has(p.playerId))) {
-        this.destroyRoom();
-        return;
-      }
-      this.broadcastState();
-      this.persistState();
-      return;
-    }
-
-    // playing 阶段：按游戏内弃权逻辑处理
-    if (this.roomStatus === 'playing') {
-      if (this.disconnectedPlayers.size >= this.players.length) {
-        // 所有玩家都断开且未重连：平局，不设胜负
-        this.disconnectedPlayers.clear();
-        this.timerPaused = false;
-        this.endMatch();
-      } else {
-        // 仍有玩家在线：断开的玩家弃权
-        this.forfeitBy = this.disconnectedPlayers.values().next().value || null;
-        this.disconnectedPlayers.clear();
-        this.timerPaused = false;
-        this.endMatch();
-      }
-      return;
-    }
-
-    // waiting / countdown 阶段：宽限过期后真正移除断线玩家
-    for (const pid of Array.from(this.disconnectedPlayers)) {
-      this.players = this.players.filter(p => p.playerId !== pid);
-      if (this.creator === pid) {
-        this.creator = this.players[0]?.playerId || '';
-      }
-    }
-    this.disconnectedPlayers.clear();
-    this.timerPaused = false;
-
-    // 如果房间空了就发送 ROOM_EXPIRED 给仍在线的连接（通常已没在线玩家），不 destroyRoom 交给空闲清理或下次加入
-    if (this.players.length === 0) {
-      this.broadcast(S2C.ROOM_EXPIRED, { message: '玩家已离开房间' });
+      this.timerPaused = false;
+      this.endMatch();
     } else {
-      this.broadcast(S2C.ROOM_EXPIRED, { message: '对手已离开' });
+      // 仍有玩家在线：断开的玩家弃权
+      this.forfeitBy = this.disconnectedPlayers.values().next().value || null;
+      this.disconnectedPlayers.clear();
+      this.timerPaused = false;
+      this.endMatch();
     }
-    this.broadcastState();
-    this.persistState();
   }
 
   private async persistState(): Promise<void> {

@@ -13,6 +13,7 @@ import type {
 } from "@/types";
 import * as api from "@/api";
 import { toHistoryRow } from "@/utils/game";
+import { i18n } from "@/i18n";
 import { useAuthStore } from "./auth";
 
 function isWinningCompare(compare: ResonatorCompare | SkeletonCompare) {
@@ -37,7 +38,7 @@ export const useSingleGameStore = defineStore("singleGame", () => {
   const error = shallowRef("");
   const gameOver = shallowRef(false);
   const answerVisible = shallowRef(false);
-  const resultMessage = shallowRef("");
+  const resultStatus = shallowRef<"" | "win" | "lost" | "revealed">("");
   const earnedScore = shallowRef(0);
 
   const attemptsLimit = ref(4);
@@ -56,7 +57,7 @@ export const useSingleGameStore = defineStore("singleGame", () => {
     error.value = "";
     gameOver.value = false;
     answerVisible.value = false;
-    resultMessage.value = "";
+    resultStatus.value = "";
     guessHistory.value = [];
     _updateLimit();
     try {
@@ -69,7 +70,7 @@ export const useSingleGameStore = defineStore("singleGame", () => {
       );
       target.value = (data.character ?? null) as ResonatorRow | SkeletonRow | null;
     } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : "开局失败";
+      error.value = reason instanceof Error ? reason.message : i18n.global.t("single.startFailed");
       throw reason;
     } finally {
       loading.value = false;
@@ -78,7 +79,7 @@ export const useSingleGameStore = defineStore("singleGame", () => {
 
   async function submitGuess(guessName: string) {
     if (!guessName.trim()) {
-      throw new Error("请输入角色或声骸名称");
+      throw new Error(i18n.global.t("single.emptyGuess"));
     }
     loading.value = true;
     error.value = "";
@@ -94,7 +95,7 @@ export const useSingleGameStore = defineStore("singleGame", () => {
         isAuth ? undefined : quizType.value,
       );
       if (!data.guess || !data.compare) {
-        throw new Error("返回结果不完整");
+        throw new Error(i18n.global.t("single.incompleteResult"));
       }
       guessHistory.value = [...guessHistory.value, toHistoryRow(data.guess, data.compare)];
       if (data.limit) attemptsLimit.value = data.limit;
@@ -102,7 +103,7 @@ export const useSingleGameStore = defineStore("singleGame", () => {
       if (win) {
         gameOver.value = true;
         answerVisible.value = true;
-        resultMessage.value = "回答正确，本局已完成。";
+        resultStatus.value = "win";
         if (data.score) {
           earnedScore.value = data.score;
           await authStore.refreshPlayer().catch(() => undefined);
@@ -110,10 +111,10 @@ export const useSingleGameStore = defineStore("singleGame", () => {
       } else if (attemptsUsed.value >= attemptsLimit.value) {
         gameOver.value = true;
         answerVisible.value = true;
-        resultMessage.value = "机会已用尽，可以重新开始。";
+        resultStatus.value = "lost";
       }
     } catch (reason) {
-      error.value = reason instanceof Error ? reason.message : "提交猜测失败";
+      error.value = reason instanceof Error ? reason.message : i18n.global.t("single.submitFailed");
       throw reason;
     } finally {
       loading.value = false;
@@ -124,7 +125,7 @@ export const useSingleGameStore = defineStore("singleGame", () => {
     if (!target.value) return;
     answerVisible.value = true;
     gameOver.value = true;
-    resultMessage.value = "已显示本局答案。";
+    resultStatus.value = "revealed";
   }
 
   return {
@@ -136,7 +137,7 @@ export const useSingleGameStore = defineStore("singleGame", () => {
     error,
     gameOver,
     answerVisible,
-    resultMessage,
+    resultStatus,
     attemptsLimit,
     attemptsUsed,
     attemptsLeft,

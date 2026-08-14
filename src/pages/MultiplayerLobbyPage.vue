@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 
 import GlassHeader from "@/components/shared/GlassHeader.vue";
 import ModalOverlay from "@/components/shared/ModalOverlay.vue";
@@ -17,6 +18,7 @@ import { getGameSocket, releaseGameSocket, type GameWebSocket } from "@/api/sock
 const authStore = useAuthStore();
 const multiGameStore = useMultiGameStore();
 const router = useRouter();
+const { t } = useI18n();
 
 const config = reactive({
   quizType: "resonator" as QuizType,
@@ -25,11 +27,11 @@ const config = reactive({
   roomCode: "",
 });
 
-const quizTypeTabs: TabOption[] = [
-  { key: "resonator", label: "共鸣者", icon: "ph:user-duotone" },
-  { key: "skeleton", label: "声骸", icon: "ph:ghost-duotone" },
-  { key: "global", label: "全局", icon: "ph:user-duotone", iconSecondary: "ph:ghost-duotone" },
-];
+const quizTypeTabs = computed<TabOption[]>(() => [
+  { key: "resonator", label: t("multi.tabResonator"), icon: "ph:user-duotone" },
+  { key: "skeleton", label: t("multi.tabSkeleton"), icon: "ph:ghost-duotone" },
+  { key: "global", label: t("multi.tabGlobal"), icon: "ph:user-duotone", iconSecondary: "ph:ghost-duotone" },
+]);
 
 const bestOfTabs: TabOption[] = [
   { key: "1", label: "BO1" },
@@ -37,19 +39,22 @@ const bestOfTabs: TabOption[] = [
   { key: "5", label: "BO5" },
 ];
 
-const difficultyTabs: TabOption[] = [
-  { key: "easy", label: "简单" },
-  { key: "hard", label: "困难" },
-];
+const difficultyTabs = computed<TabOption[]>(() => [
+  { key: "easy", label: t("single.easy") },
+  { key: "hard", label: t("single.hard") },
+]);
 
 const queueSummary = computed(() => {
   if (config.quizType === "global") {
-    return "全局匹配";
+    return t("multi.queueGlobal");
   }
   if (config.quizType === "skeleton") {
-    return `声骸 / ${config.difficulty === "easy" ? "简单" : "困难"} / BO${config.bestOf}`;
+    return t("multi.queueSkeleton", {
+      difficulty: config.difficulty === "easy" ? t("single.easy") : t("single.hard"),
+      bestOf: config.bestOf,
+    });
   }
-  return `共鸣者 / BO${config.bestOf}`;
+  return t("multi.queueResonator", { bestOf: config.bestOf });
 });
 
 const showRoomActiveModal = shallowRef(false);
@@ -66,14 +71,14 @@ async function createRoom() {
   // 共鸣者模式没有难度区分，统一强制为 'easy'，避免匹配时 difficulty 不同导致无法匹配
   const effectiveDifficulty = config.quizType === "skeleton" ? config.difficulty : "easy";
   try { await multiGameStore.createRoom(config.quizType, config.bestOf, effectiveDifficulty); }
-  catch (reason) { multiGameStore.error = errMsg(reason) || "创建房间失败"; }
+  catch (reason) { multiGameStore.error = errMsg(reason) || t("multi.createFailed"); }
 }
 
 async function joinRoom() {
   if (!config.roomCode.trim()) return;
   if (multiGameStore.roomState) { promptStillInRoom(); return; }
   try { await multiGameStore.joinRoom(config.roomCode.trim().toUpperCase()); }
-  catch (reason) { multiGameStore.error = errMsg(reason) || "加入房间失败"; }
+  catch (reason) { multiGameStore.error = errMsg(reason) || t("multi.joinFailed"); }
 }
 
 async function randomMatch() {
@@ -82,7 +87,7 @@ async function randomMatch() {
   const effectiveDifficulty = config.quizType === "skeleton" ? config.difficulty : "easy";
   // 按游戏规则文档：随机匹配固定 BO3 赛制
   try { await multiGameStore.joinQueue(config.quizType, effectiveDifficulty, 3); }
-  catch (reason) { multiGameStore.error = errMsg(reason) || "进入匹配队列失败"; }
+  catch (reason) { multiGameStore.error = errMsg(reason) || t("multi.joinQueueFailed"); }
 }
 
 watch(() => multiGameStore.roomState?.roomCode, (roomCode) => {
@@ -158,7 +163,7 @@ onUnmounted(() => {
 <template>
   <div class="ml-screen">
     <div class="ml-shell">
-      <GlassHeader class="ml-glass-header" kicker="多人 · 对战大厅" title="Multiplayer Lobby" back-to="/" />
+      <GlassHeader class="ml-glass-header" :kicker="t('multi.lobbyKicker')" title="Multiplayer Lobby" back-to="/" />
 
       <div v-if="!multiGameStore.inQueue" class="ml-config">
         <TabGroup :tabs="quizTypeTabs" :active-key="config.quizType" @select="config.quizType = $event as QuizType" />
@@ -169,7 +174,7 @@ onUnmounted(() => {
       </div>
 
       <div class="status-stack">
-        <StatusBanner v-if="!authStore.isAuthenticated" message="多人模式需要先登录账号" tone="error" />
+        <StatusBanner v-if="!authStore.isAuthenticated" :message="t('multi.loginRequired')" tone="error" />
         <StatusBanner v-else-if="multiGameStore.error" :message="multiGameStore.error" tone="error" />
       </div>
 
@@ -183,12 +188,12 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="ml-match-info">
-          <h2 class="ml-match-title">正在匹配</h2>
-          <p class="ml-match-desc">Searching for opponent...</p>
+          <h2 class="ml-match-title">{{ t("multi.matching") }}</h2>
+          <p class="ml-match-desc">{{ t("multi.searchingForOpponent") }}</p>
           <span class="ml-match-chip">{{ queueSummary }}</span>
         </div>
         <button class="btn" style="margin-top:0.5rem" @click="multiGameStore.cancelQueue()">
-          <Icon icon="ph:x-circle-duotone" class="btn-icon" aria-hidden="true" /> 取消匹配
+          <Icon icon="ph:x-circle-duotone" class="btn-icon" aria-hidden="true" /> {{ t("multi.cancelMatch") }}
         </button>
       </div>
 
@@ -200,11 +205,11 @@ onUnmounted(() => {
           </div>
           <div class="ml-card-copy">
             <p class="ml-card-kicker">CREATE ROOM</p>
-            <h2 class="ml-card-title">创建房间</h2>
-            <p class="ml-card-desc">自定义题型与赛制，生成房间码邀请对手加入。</p>
+            <h2 class="ml-card-title">{{ t("multi.createRoom") }}</h2>
+            <p class="ml-card-desc">{{ t("multi.createRoomDesc") }}</p>
           </div>
           <button class="btn" style="margin-top:auto" @click="createRoom">
-            <Icon icon="ph:plus-duotone" class="btn-icon" aria-hidden="true" /> 创建房间
+            <Icon icon="ph:plus-duotone" class="btn-icon" aria-hidden="true" /> {{ t("multi.createRoom") }}
           </button>
         </article>
 
@@ -215,22 +220,22 @@ onUnmounted(() => {
           <div class="ml-card-copy">
             <p class="ml-card-kicker">RANDOM MATCH</p>
             <h2 class="ml-card-title">
-              随机匹配
-              <span v-if="poolStats" class="ml-pool-chip" :title="`等待 ${poolStats.waiting} · 对局中 ${poolStats.in_match}`">
+              {{ t("multi.randomMatch") }}
+              <span v-if="poolStats" class="ml-pool-chip" :title="t('multi.poolChipTitle', { waiting: poolStats.waiting, inMatch: poolStats.in_match })">
                 <span class="ml-pool-dot" aria-hidden="true"></span>
-                {{ poolStats.total }} 人在线
+                {{ t("multi.poolOnline", { total: poolStats.total }) }}
               </span>
             </h2>
-            <p class="ml-card-desc">自动匹配在线玩家，固定 BO3 赛制，匹配成功即进入房间。</p>
+            <p class="ml-card-desc">{{ t("multi.randomMatchDesc") }}</p>
             <p v-if="poolStats" class="ml-pool-detail">
-              等待 {{ poolStats.waiting }} · 对局中 {{ poolStats.in_match }}
+              {{ t("multi.poolDetail", { waiting: poolStats.waiting, inMatch: poolStats.in_match }) }}
             </p>
           </div>
           <div class="ml-btn-row">
             <button class="btn" @click="randomMatch">
-              <Icon icon="ph:lightning-duotone" class="btn-icon" aria-hidden="true" /> 开始匹配
+              <Icon icon="ph:lightning-duotone" class="btn-icon" aria-hidden="true" /> {{ t("multi.startMatch") }}
             </button>
-            <button class="btn-ghost" @click="multiGameStore.cancelQueue()">取消</button>
+            <button class="btn-ghost" @click="multiGameStore.cancelQueue()">{{ t("common.cancel") }}</button>
           </div>
         </article>
 
@@ -240,13 +245,13 @@ onUnmounted(() => {
           </div>
           <div class="ml-card-copy">
             <p class="ml-card-kicker">JOIN ROOM</p>
-            <h2 class="ml-card-title">加入房间</h2>
-            <p class="ml-card-desc">输入 6 位房间码，快速加入好友创建的已有房间。</p>
+            <h2 class="ml-card-title">{{ t("multi.joinRoom") }}</h2>
+            <p class="ml-card-desc">{{ t("multi.joinRoomDesc") }}</p>
           </div>
           <div class="ml-join-row">
-            <input v-model="config.roomCode" class="form-input" maxlength="6" placeholder="输入房间码"
+            <input v-model="config.roomCode" class="form-input" maxlength="6" :placeholder="t('multi.roomCodePlaceholder')"
               style="text-transform:uppercase;letter-spacing:0.18em;text-align:center" />
-            <button class="btn" @click="joinRoom">加入</button>
+            <button class="btn" @click="joinRoom">{{ t("multi.joinBtn") }}</button>
           </div>
         </article>
 
@@ -256,25 +261,25 @@ onUnmounted(() => {
           </div>
           <div class="ml-card-copy">
             <p class="ml-card-kicker">RESUME</p>
-            <h2 class="ml-card-title">恢复房间</h2>
-            <p class="ml-card-desc">返回当前进行中的房间继续对战，断线重连保留状态。</p>
+            <h2 class="ml-card-title">{{ t("multi.resumeRoom") }}</h2>
+            <p class="ml-card-desc">{{ t("multi.resumeRoomDesc") }}</p>
           </div>
           <RouterLink class="btn" style="display:inline-flex;text-decoration:none;margin-top:auto" to="/multi/room">
-            <Icon icon="ph:arrow-right-duotone" class="btn-icon" aria-hidden="true" /> 前往房间
+            <Icon icon="ph:arrow-right-duotone" class="btn-icon" aria-hidden="true" /> {{ t("multi.goToRoom") }}
           </RouterLink>
         </article>
       </div>
 
-      <EmptyState v-else icon="ph:lock-duotone" kicker="NOTICE" title="登录后可进入多人大厅" description="账号体系接入实时房间、积分变动与排行榜同步。">
-        <RouterLink class="btn" to="/auth">前往登录</RouterLink>
+      <EmptyState v-else icon="ph:lock-duotone" kicker="NOTICE" :title="t('multi.lobbyLoginRequired')" :description="t('multi.lobbyLoginRequiredDesc')">
+        <RouterLink class="btn" to="/auth">{{ t("multi.goToLogin") }}</RouterLink>
       </EmptyState>
 
       <footer v-if="!multiGameStore.inQueue" class="ml-foot">
         <span class="ml-foot-status">
           <span class="ml-foot-dot" :class="{ 'ml-foot-dot--on': authStore.isAuthenticated }"></span>
-          {{ authStore.isAuthenticated ? `已登录 · ${authStore.playerId}${authStore.dbId != null ? ` #${authStore.dbId}` : ''}` : "未登录" }}
+          {{ authStore.isAuthenticated ? t("multi.loggedInAs", { player: `${authStore.playerId}${authStore.dbId != null ? ` #${authStore.dbId}` : ""}` }) : t("multi.notLoggedIn") }}
         </span>
-        <span class="ml-foot-hint">选择一个模式开始</span>
+        <span class="ml-foot-hint">{{ t("multi.selectMode") }}</span>
       </footer>
     </div>
 
@@ -284,13 +289,13 @@ onUnmounted(() => {
         <Icon icon="ph:warning-circle-duotone" aria-hidden="true" />
       </div>
       <p class="ml-room-modal-kicker">NOTICE</p>
-      <h2 class="ml-room-modal-title">你仍然在房间里</h2>
-      <p class="ml-room-modal-desc">当前你还在房间 {{ multiGameStore.roomState?.roomCode }} 对局中，请先退出房间后再创建或匹配新的对局。</p>
+      <h2 class="ml-room-modal-title">{{ t("multi.stillInRoom") }}</h2>
+      <p class="ml-room-modal-desc">{{ t("multi.stillInRoomDesc", { code: multiGameStore.roomState?.roomCode ?? "" }) }}</p>
       <div class="ml-room-modal-actions">
         <button class="btn" @click="goToActiveRoom">
-          <Icon icon="ph:arrow-right-duotone" class="btn-icon" /> 前往房间
+          <Icon icon="ph:arrow-right-duotone" class="btn-icon" /> {{ t("multi.goToRoom") }}
         </button>
-        <button class="btn-ghost" @click="closeRoomActiveModal">知道了</button>
+        <button class="btn-ghost" @click="closeRoomActiveModal">{{ t("multi.gotIt") }}</button>
       </div>
     </ModalOverlay>
 
@@ -301,10 +306,10 @@ onUnmounted(() => {
         <Icon icon="ph:warning-circle-duotone" aria-hidden="true" />
       </div>
       <p class="ml-room-modal-kicker">NOTICE</p>
-      <h2 class="ml-room-modal-title">全局模式仅限随机匹配</h2>
-      <p class="ml-room-modal-desc">全局匹配模式会为你匹配共鸣者或声骸的任意对手，无法创建指定类型的房间。请使用"随机匹配"按钮开始对局。</p>
+      <h2 class="ml-room-modal-title">{{ t("multi.globalMatchOnly") }}</h2>
+      <p class="ml-room-modal-desc">{{ t("multi.globalMatchOnlyDesc") }}</p>
       <div class="ml-room-modal-actions">
-        <button class="btn" @click="closeGlobalCreateErrorModal">知道了</button>
+        <button class="btn" @click="closeGlobalCreateErrorModal">{{ t("multi.gotIt") }}</button>
       </div>
     </ModalOverlay>
 
@@ -315,8 +320,8 @@ onUnmounted(() => {
         <Icon icon="ph:check-circle-duotone" aria-hidden="true" />
       </div>
       <p class="ml-matched-kicker">MATCHED</p>
-      <h2 class="ml-matched-title">匹配成功</h2>
-      <p class="ml-matched-desc">已找到对手，正在进入房间...</p>
+      <h2 class="ml-matched-title">{{ t("multi.matchedTitle") }}</h2>
+      <p class="ml-matched-desc">{{ t("multi.matchedDesc") }}</p>
       <div class="ml-matched-spinner" aria-hidden="true">
         <div v-for="i in 3" :key="i" class="ml-matched-ring" :style="{ animationDelay: `${(i - 1) * 0.2}s` }"></div>
       </div>
@@ -329,8 +334,8 @@ onUnmounted(() => {
         <Icon icon="ph:sparkle-duotone" aria-hidden="true" />
       </div>
       <p class="ml-creating-kicker">CREATING</p>
-      <h2 class="ml-creating-title">创建成功</h2>
-      <p class="ml-creating-desc">房间已创建，正在进入房间...</p>
+      <h2 class="ml-creating-title">{{ t("multi.creatingTitle") }}</h2>
+      <p class="ml-creating-desc">{{ t("multi.creatingDesc") }}</p>
       <div class="ml-creating-spinner" aria-hidden="true">
         <div v-for="i in 3" :key="i" class="ml-creating-ring" :style="{ animationDelay: `${(i - 1) * 0.2}s` }"></div>
       </div>
@@ -343,8 +348,8 @@ onUnmounted(() => {
         <Icon icon="ph:sign-in-duotone" aria-hidden="true" />
       </div>
       <p class="ml-joining-kicker">JOINING</p>
-      <h2 class="ml-joining-title">加入成功</h2>
-      <p class="ml-joining-desc">已加入房间，正在进入房间...</p>
+      <h2 class="ml-joining-title">{{ t("multi.joiningTitle") }}</h2>
+      <p class="ml-joining-desc">{{ t("multi.joiningDesc") }}</p>
       <div class="ml-joining-spinner" aria-hidden="true">
         <div v-for="i in 3" :key="i" class="ml-joining-ring" :style="{ animationDelay: `${(i - 1) * 0.2}s` }"></div>
       </div>

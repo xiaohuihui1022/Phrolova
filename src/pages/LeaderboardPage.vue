@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 
 import TabGroup from "@/components/shared/TabGroup.vue";
 import type { QuizType, TabOption } from "@/types";
@@ -11,6 +12,7 @@ const PAGE_SIZE = 20;
 
 const authStore = useAuthStore();
 const router = useRouter();
+const { t } = useI18n();
 const loading = shallowRef(false);
 const leaderboard = ref<Array<Record<string, unknown>>>([]);
 const myInfo = ref<Record<string, unknown> | null>(null);
@@ -22,19 +24,19 @@ const totalPages = ref(1);
 const mode = ref<"single" | "multi">("multi");
 const quizType = ref<QuizType>("resonator");
 
-const leaderTabs: TabOption[] = [
-  { key: "multi", label: "多人对战" },
-  { key: "single-resonator", label: "单人 · 共鸣者" },
-  { key: "single-skeleton", label: "单人 · 声骸" },
-];
+const leaderTabs = computed<TabOption[]>(() => [
+  { key: "multi", label: t("leaderboard.tabMulti") },
+  { key: "single-resonator", label: t("leaderboard.tabSingleResonator") },
+  { key: "single-skeleton", label: t("leaderboard.tabSingleSkeleton") },
+]);
 
 const tabTitle = computed(() => {
-  const t = leaderTabs.find(tab => {
-    if (tab.key === "multi") return mode.value === "multi";
-    if (tab.key === "single-resonator") return mode.value === "single" && quizType.value === "resonator";
+  const tab = leaderTabs.value.find(tb => {
+    if (tb.key === "multi") return mode.value === "multi";
+    if (tb.key === "single-resonator") return mode.value === "single" && quizType.value === "resonator";
     return mode.value === "single" && quizType.value === "skeleton";
   });
-  return t?.label || "";
+  return tab?.label || "";
 });
 
 const showPodium = computed(() => page.value === 1);
@@ -78,10 +80,10 @@ onMounted(loadLeaderboard);
   <div class="lb-page">
     <header class="lb-top">
       <button class="back-btn" @click="router.push('/')">
-        <Icon icon="ph:arrow-left-duotone" /> BACK
+        <Icon icon="ph:arrow-left-duotone" /> {{ t("leaderboard.back") }}
       </button>
       <div class="lb-header-center">
-        <h1 class="lb-title">排行榜</h1>
+        <h1 class="lb-title">{{ t("leaderboard.pageTitle") }}</h1>
         <p class="lb-sub">{{ tabTitle }}</p>
       </div>
       <div class="lb-header-right">
@@ -96,7 +98,7 @@ onMounted(loadLeaderboard);
 
     <div class="lb-main">
       <div class="lb-card">
-        <div v-if="loading" class="lb-loading">正在加载...</div>
+        <div v-if="loading" class="lb-loading">{{ t("leaderboard.loading") }}</div>
 
         <template v-else-if="leaderboard.length">
           <div v-if="showPodium" class="lb-podium">
@@ -121,7 +123,7 @@ onMounted(loadLeaderboard);
           </div>
         </template>
 
-        <p v-else class="lb-empty">暂无排行数据</p>
+        <p v-else class="lb-empty">{{ t("leaderboard.empty") }}</p>
       </div>
 
       <div v-if="totalPages > 1" class="lb-pager">

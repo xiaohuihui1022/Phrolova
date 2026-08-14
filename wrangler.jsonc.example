@@ -12,13 +12,6 @@
       "migrations_table": "drizzle_migrations"
     }
   ],
-  "kv_namespaces": [
-    {
-      "binding": "KV",
-      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID",
-      "preview_id": "REPLACE_WITH_YOUR_KV_PREVIEW_ID"
-    }
-  ],
   "durable_objects": {
     "bindings": [
       {
@@ -37,5 +30,6 @@
     "ADMIN_USER": "admin",
     "SESSION_TTL": "7200",
     "CAPTCHA_TTL": "180"
-  }
+  },
+  "//": "UPSTASH_REDIS_URL 和 UPSTASH_REDIS_TOKEN 用于在线人数统计，请用 wrangler secret put 设置（不要明文写在 vars 中）"
 }

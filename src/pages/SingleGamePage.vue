@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import gsap from "gsap";
 
 import FeedbackLegend from "@/components/game/FeedbackLegend.vue";
@@ -11,10 +12,13 @@ import ModalOverlay from "@/components/shared/ModalOverlay.vue";
 import { useTheme } from "@/composables/useTheme";
 import { useDictionaryStore } from "@/stores/dictionary";
 import { useSingleGameStore } from "@/stores/singleGame";
+import { useAuthStore } from "@/stores/auth";
 
 const { theme } = useTheme();
+const { t } = useI18n();
 const dictionaryStore = useDictionaryStore();
 const singleGameStore = useSingleGameStore();
+const authStore = useAuthStore();
 const router = useRouter();
 const guessName = shallowRef("");
 const guessInputRef = useTemplateRef<{ focus: () => void; resolveFinalName: () => string }>("guessInput");
@@ -52,8 +56,10 @@ const currentNames = computed(() =>
 );
 
 const modeTitle = computed(() => {
-  if (singleGameStore.quizType === "skeleton") return `声骸推演 / ${singleGameStore.difficulty === "easy" ? "简单" : "困难"}`;
-  return "共鸣者推演 / 标准";
+  if (singleGameStore.quizType === "skeleton") {
+    return singleGameStore.difficulty === "easy" ? t("single.skeletonTitleEasy") : t("single.skeletonTitleHard");
+  }
+  return t("single.resonatorTitle");
 });
 
 const targetVersion = computed(() => {
@@ -80,21 +86,21 @@ const answerText = computed(() => {
 const hasGuessHistory = computed(() => singleGameStore.guessHistory.length > 0);
 
 const stagePromptTitle = computed(() =>
-  singleGameStore.quizType === "skeleton" ? "在下方输入声骸名称开始猜测" : "在下方输入角色昵称开始猜测",
+  singleGameStore.quizType === "skeleton" ? t("single.skeletonPromptTitle") : t("single.resonatorPromptTitle"),
 );
 
 const stagePromptSubtitle = computed(() =>
   singleGameStore.quizType === "skeleton"
-    ? "根据 COST、属性、异相与套装反馈逐步缩小范围"
-    : "绿色正确，黄色接近，箭头提示目标数值方向",
+    ? t("single.skeletonPromptSubtitle")
+    : t("single.resonatorPromptSubtitle"),
 );
 
-const isWin = computed(() => singleGameStore.resultMessage === "回答正确，本局已完成。");
+const isWin = computed(() => singleGameStore.resultStatus === "win");
 
 const roundEndTitle = computed(() => {
-  if (isWin.value) return "回答正确";
-  if (singleGameStore.resultMessage === "已显示本局答案。") return "已揭晓答案";
-  return "机会已用尽";
+  if (singleGameStore.resultStatus === "win") return t("single.winTitle");
+  if (singleGameStore.resultStatus === "revealed") return t("single.revealedTitle");
+  return t("single.lostTitle");
 });
 
 const modalDismissed = ref(false);
@@ -137,10 +143,35 @@ function handleClickSubmit() {
   submitGuess(finalName);
 }
 
+/**
+ * 玩家关闭/离开页面时，通过 sendBeacon 通知后端标记目标会话 10s 后过期。
+ * sendBeacon 不支持自定义 header，所以 auth 走 query params（后端 readPlayerAuth 三级回退已覆盖）。
+ * 10s 宽限期用于区分"刷新页面"和"真正离开"：刷新后重新抽题会 upsert 新行，旧行的 expires_at 被清除。
+ */
+function handlePageHide() {
+  const pid = authStore.playerId;
+  const tok = authStore.token;
+  if (!pid || !tok) return;
+  const url = `/api/player/leave?player_id=${encodeURIComponent(pid)}&token=${encodeURIComponent(tok)}`;
+  try {
+    if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+      navigator.sendBeacon(url);
+    } else {
+      // 兜底：fetch keepalive 也能在页面卸载时发出请求
+      void fetch(url, { method: "POST", keepalive: true }).catch(() => undefined);
+    }
+  } catch { /* ignore */ }
+}
+
 onMounted(async () => {
+  window.addEventListener("pagehide", handlePageHide);
   await dictionaryStore.ensureLoaded(singleGameStore.quizType);
   await restartGame();
   gsap.from(".sg-glass-header", { opacity: 0, y: -20, duration: 0.45, ease: "power2.out" });
+});
+
+onUnmounted(() => {
+  window.removeEventListener("pagehide", handlePageHide);
 });
 </script>
 
@@ -149,15 +180,15 @@ onMounted(async () => {
     <div class="game-shell">
       <GlassHeader
         class="sg-glass-header"
-        kicker="单人 · 猜测模式"
+        :kicker="t('single.playKicker')"
         :title="modeTitle"
         back-to="/single"
       >
         <template #actions>
-          <button class="glass-header-btn" @click="singleGameStore.revealAnswer()" title="查看答案">
+          <button class="glass-header-btn" @click="singleGameStore.revealAnswer()" :title="t('single.revealAnswer')">
             <Icon icon="ph:eye-duotone" aria-hidden="true" />
           </button>
-          <button class="glass-header-btn" @click="restartGame" title="重新开始">
+          <button class="glass-header-btn" @click="restartGame" :title="t('single.restart')">
             <Icon icon="ph:arrow-counter-clockwise-duotone" aria-hidden="true" />
           </button>
         </template>
@@ -165,17 +196,17 @@ onMounted(async () => {
 
       <div class="score-bar">
         <div class="score-item">
-          <span class="score-label">已猜</span>
+          <span class="score-label">{{ t("single.guessed") }}</span>
           <span class="score-value">{{ singleGameStore.attemptsUsed }}</span>
         </div>
         <div class="score-divider">/</div>
         <div class="score-item">
-          <span class="score-label">上限</span>
+          <span class="score-label">{{ t("single.limit") }}</span>
           <span class="score-value">{{ singleGameStore.attemptsLimit }}</span>
         </div>
         <div class="score-divider score-divider--gap">·</div>
         <div class="score-item">
-          <span class="score-label">剩余</span>
+          <span class="score-label">{{ t("single.remaining") }}</span>
           <span class="score-value score-value--accent">{{ singleGameStore.attemptsLeft }}</span>
         </div>
       </div>
@@ -184,7 +215,7 @@ onMounted(async () => {
         <div class="stage-head">
           <div class="stage-copy">
             <p class="stage-kicker">PLAYFIELD</p>
-            <h2 class="stage-title">{{ hasGuessHistory ? "猜测记录" : stagePromptTitle }}</h2>
+            <h2 class="stage-title">{{ hasGuessHistory ? t("single.guessHistory") : stagePromptTitle }}</h2>
             <p class="stage-sub">{{ hasGuessHistory ? "" : stagePromptSubtitle }}</p>
           </div>
           <FeedbackLegend v-if="hasGuessHistory" />
@@ -211,9 +242,9 @@ onMounted(async () => {
       <footer class="game-dock">
         <div class="dock-copy">
           <span class="dock-label">
-            <Icon icon="ph:keyboard-duotone" class="dock-label-icon" aria-hidden="true" /> 提交猜测
+            <Icon icon="ph:keyboard-duotone" class="dock-label-icon" aria-hidden="true" /> {{ t("single.submitGuess") }}
           </span>
-          <span class="dock-meta">{{ singleGameStore.loading ? "正在处理本次猜测" : stagePromptTitle }}</span>
+          <span class="dock-meta">{{ singleGameStore.loading ? t("single.processing") : stagePromptTitle }}</span>
         </div>
 
         <div class="dock-input-row">
@@ -223,11 +254,11 @@ onMounted(async () => {
             :disabled="!singleGameStore.canSubmit || singleGameStore.loading"
             :names="currentNames"
             :quiz-type="singleGameStore.quizType"
-            :placeholder="singleGameStore.quizType === 'skeleton' ? '输入声骸名称' : '输入角色昵称'"
+            :placeholder="singleGameStore.quizType === 'skeleton' ? t('single.skeletonPlaceholder') : t('single.resonatorPlaceholder')"
             @submit="submitGuess"
           />
           <button class="btn btn-submit" :disabled="!singleGameStore.canSubmit || singleGameStore.loading" @click="handleClickSubmit">
-            <Icon icon="ph:paper-plane-right-duotone" class="btn-icon" aria-hidden="true" /> 提交
+            <Icon icon="ph:paper-plane-right-duotone" class="btn-icon" aria-hidden="true" /> {{ t("single.submit") }}
           </button>
         </div>
       </footer>
@@ -240,13 +271,13 @@ onMounted(async () => {
             <Icon :icon="isWin ? 'ph:crown-duotone' : 'ph:eye-duotone'" aria-hidden="true" />
           </div>
           <h2 class="sg-win-title">{{ roundEndTitle }}</h2>
-          <p class="sg-win-answer-label">正确答案</p>
+          <p class="sg-win-answer-label">{{ t("single.correctAnswer") }}</p>
           <p class="sg-win-answer">{{ answerText }}</p>
-          <p v-if="isWin" class="sg-win-attempts">仅用 {{ singleGameStore.attemptsUsed }} 次猜测</p>
-          <p v-if="singleGameStore.earnedScore" class="sg-win-score">+{{ singleGameStore.earnedScore }} 分</p>
+          <p v-if="isWin" class="sg-win-attempts">{{ t("single.attemptsUsedN", { n: singleGameStore.attemptsUsed }) }}</p>
+          <p v-if="singleGameStore.earnedScore" class="sg-win-score">{{ t("single.scoreGained", { n: singleGameStore.earnedScore }) }}</p>
           <div class="sg-win-actions">
-            <button class="btn" @click="restartGame">再来一局</button>
-            <button class="btn-ghost" @click="router.push('/single')">返回模式选择</button>
+            <button class="btn" @click="restartGame">{{ t("single.playAgain") }}</button>
+            <button class="btn-ghost" @click="router.push('/single')">{{ t("single.backToModeSelect") }}</button>
           </div>
         </div>
       </div>

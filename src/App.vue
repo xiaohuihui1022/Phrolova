@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref, watch, watchEffect } from "vue";
+import { computed, onMounted, ref, watch, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 
 import ModalOverlay from "@/components/shared/ModalOverlay.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -8,7 +9,7 @@ import { useMultiGameStore } from "@/stores/multiGame";
 import { useTheme } from "@/composables/useTheme";
 import { useSettings } from "@/composables/useSettings";
 import { useLocalStorage } from "@/composables/useStorage";
-import { sendHeartbeat } from "@/api";
+import { useLocale } from "@/i18n";
 import type { AccentPreset } from "@/types";
 
 const ACCENT_KEY = "phrolova_accent";
@@ -17,6 +18,8 @@ const authStore = useAuthStore();
 const multiGameStore = useMultiGameStore();
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
+const { locale, setLocale, availableLocales } = useLocale();
 const { theme, toggleTheme } = useTheme();
 const { settings, toggleAnimations } = useSettings();
 
@@ -30,32 +33,32 @@ const isAdminRoute = computed(() => isAdminLoginRoute.value || route.name === "a
 
 const ACCENTS: AccentPreset[] = [
   {
-    id: "violet", label: "紫罗兰",
+    id: "violet", label: "theme.violet",
     dark: { gold: "#a78bfa", goldSoft: "rgba(167,139,250,0.45)", shellBg: "#0a0810", shellBgDeep: "#120e1c", surfacePanel: "rgba(22,18,34,0.94)", surfacePanelStrong: "rgba(28,22,42,0.96)", surfaceCard: "rgba(20,16,30,0.96)", textMain: "#f5f0fa", textSub: "#a599c5", textFaint: "rgba(165,153,197,0.60)" },
     light: { gold: "#7c5cc4", goldSoft: "rgba(124,92,196,0.35)", shellBg: "#f3f0f8", shellBgDeep: "#e8e2f2", surfacePanel: "rgba(252,250,255,0.94)", surfacePanelStrong: "rgba(250,246,255,0.96)", surfaceCard: "rgba(250,246,255,0.96)", textMain: "#241a33", textSub: "#5e4d7a", textFaint: "rgba(94,77,122,0.55)" },
   },
   {
-    id: "gold", label: "流金",
+    id: "gold", label: "theme.gold",
     dark: { gold: "#e6b84d", goldSoft: "rgba(230,184,77,0.45)", shellBg: "#080806", shellBgDeep: "#0f0e0a", surfacePanel: "rgba(22,20,14,0.94)", surfacePanelStrong: "rgba(28,25,18,0.96)", surfaceCard: "rgba(20,18,13,0.96)", textMain: "#faf8f0", textSub: "#b5ad90", textFaint: "rgba(181,173,144,0.60)" },
     light: { gold: "#b8922e", goldSoft: "rgba(184,146,46,0.35)", shellBg: "#f5f2e8", shellBgDeep: "#ede8d8", surfacePanel: "rgba(255,252,242,0.94)", surfacePanelStrong: "rgba(252,248,232,0.96)", surfaceCard: "rgba(250,246,230,0.96)", textMain: "#2a2416", textSub: "#6b6040", textFaint: "rgba(107,96,64,0.55)" },
   },
   {
-    id: "cyan", label: "青碧",
+    id: "cyan", label: "theme.cyan",
     dark: { gold: "#22d3ee", goldSoft: "rgba(34,211,238,0.45)", shellBg: "#041012", shellBgDeep: "#08181c", surfacePanel: "rgba(14,28,32,0.94)", surfacePanelStrong: "rgba(18,36,42,0.96)", surfaceCard: "rgba(12,24,28,0.96)", textMain: "#eafafc", textSub: "#8db8c4", textFaint: "rgba(141,184,196,0.60)" },
     light: { gold: "#0891b2", goldSoft: "rgba(8,145,178,0.35)", shellBg: "#eff8fa", shellBgDeep: "#dcf0f4", surfacePanel: "rgba(248,252,254,0.94)", surfacePanelStrong: "rgba(242,250,252,0.96)", surfaceCard: "rgba(244,250,252,0.96)", textMain: "#0a2228", textSub: "#3a6878", textFaint: "rgba(58,104,120,0.55)" },
   },
   {
-    id: "rose", label: "绯红",
+    id: "rose", label: "theme.rose",
     dark: { gold: "#fb7185", goldSoft: "rgba(251,113,133,0.45)", shellBg: "#100408", shellBgDeep: "#1c0a10", surfacePanel: "rgba(34,14,20,0.94)", surfacePanelStrong: "rgba(42,18,26,0.96)", surfaceCard: "rgba(30,12,18,0.96)", textMain: "#fdf0f2", textSub: "#c89099", textFaint: "rgba(200,144,153,0.60)" },
     light: { gold: "#e11d48", goldSoft: "rgba(225,29,72,0.35)", shellBg: "#faf0f2", shellBgDeep: "#f4dde2", surfacePanel: "rgba(255,248,250,0.94)", surfacePanelStrong: "rgba(252,242,246,0.96)", surfaceCard: "rgba(252,244,246,0.96)", textMain: "#280812", textSub: "#78304a", textFaint: "rgba(120,48,74,0.55)" },
   },
   {
-    id: "emerald", label: "翠绿",
+    id: "emerald", label: "theme.emerald",
     dark: { gold: "#4ade80", goldSoft: "rgba(74,222,128,0.45)", shellBg: "#041008", shellBgDeep: "#081a10", surfacePanel: "rgba(14,30,20,0.94)", surfacePanelStrong: "rgba(18,38,24,0.96)", surfaceCard: "rgba(12,26,18,0.96)", textMain: "#eafdf0", textSub: "#88c89c", textFaint: "rgba(136,200,156,0.60)" },
     light: { gold: "#16a34a", goldSoft: "rgba(22,163,74,0.35)", shellBg: "#effaf2", shellBgDeep: "#dcf2e2", surfacePanel: "rgba(248,254,250,0.94)", surfacePanelStrong: "rgba(242,252,246,0.96)", surfaceCard: "rgba(244,252,248,0.96)", textMain: "#082014", textSub: "#306050", textFaint: "rgba(48,96,80,0.55)" },
   },
   {
-    id: "amber", label: "琥珀",
+    id: "amber", label: "theme.amber",
     dark: { gold: "#fbbf24", goldSoft: "rgba(251,191,36,0.45)", shellBg: "#100c04", shellBgDeep: "#1a1408", surfacePanel: "rgba(30,24,14,0.94)", surfacePanelStrong: "rgba(38,30,18,0.96)", surfaceCard: "rgba(26,20,12,0.96)", textMain: "#fdf6e8", textSub: "#c4ac78", textFaint: "rgba(196,172,120,0.60)" },
     light: { gold: "#d97706", goldSoft: "rgba(217,119,6,0.35)", shellBg: "#faf6ee", shellBgDeep: "#f2e8d4", surfacePanel: "rgba(255,252,244,0.94)", surfacePanelStrong: "rgba(252,248,236,0.96)", surfaceCard: "rgba(250,246,234,0.96)", textMain: "#241604", textSub: "#6a4e18", textFaint: "rgba(106,78,24,0.55)" },
   },
@@ -112,62 +115,7 @@ onMounted(async () => {
   if (authStore.isAuthenticated) {
     await multiGameStore.resumeRoom().catch(() => undefined);
   }
-  startOnlineHeartbeat();
-  document.addEventListener("visibilitychange", onVisibilityChange);
 });
-
-onBeforeUnmount(() => {
-  stopOnlineHeartbeat();
-  document.removeEventListener("visibilitychange", onVisibilityChange);
-});
-
-// ── 全站在线心跳 ──
-// 已登录用 playerId，匿名用 localStorage 生成的 guest ID
-// 页面不可见时暂停心跳，可见时立即恢复
-const GUEST_ID_KEY = "phrolova_guest_id";
-const HEARTBEAT_INTERVAL = 30 * 1000; // 30 秒
-let heartbeatTimer: number | null = null;
-
-function getOnlineClientId(): string {
-  if (authStore.playerId) return authStore.playerId;
-  // 匿名访客：从 localStorage 取或生成 guest ID
-  let guestId = "";
-  try { guestId = localStorage.getItem(GUEST_ID_KEY) ?? ""; } catch { /* ignore */ }
-  if (!guestId) {
-    guestId = "guest_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    try { localStorage.setItem(GUEST_ID_KEY, guestId); } catch { /* ignore */ }
-  }
-  return guestId;
-}
-
-function sendOnlineHeartbeat() {
-  const clientId = getOnlineClientId();
-  sendHeartbeat(clientId).catch(() => { /* 静默失败 */ });
-}
-
-function startOnlineHeartbeat() {
-  stopOnlineHeartbeat();
-  sendOnlineHeartbeat(); // 立即发送一次
-  heartbeatTimer = window.setInterval(() => {
-    if (document.visibilityState === "visible") {
-      sendOnlineHeartbeat();
-    }
-  }, HEARTBEAT_INTERVAL);
-}
-
-function stopOnlineHeartbeat() {
-  if (heartbeatTimer !== null) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
-}
-
-// 页面从隐藏恢复可见时立即发一次心跳
-function onVisibilityChange() {
-  if (document.visibilityState === "visible") {
-    sendOnlineHeartbeat();
-  }
-}
 </script>
 
 <template>
@@ -178,28 +126,28 @@ function onVisibilityChange() {
 
     <ModalOverlay v-if="multiGameStore.kicked" max-width="360px" panel-class="kicked-modal" no-close @close="handleKickedConfirm">
       <Icon icon="ph:warning-duotone" class="kicked-icon" />
-      <h2 class="kicked-title">账号在别处登录</h2>
-      <p class="kicked-desc">你的账号已在其他设备登录，当前会话已被强制退出。</p>
-      <button class="kicked-btn" @click="handleKickedConfirm">确定</button>
+      <h2 class="kicked-title">{{ t('auth.kickedTitle') }}</h2>
+      <p class="kicked-desc">{{ t('auth.kickedDesc') }}</p>
+      <button class="kicked-btn" @click="handleKickedConfirm">{{ t('common.confirm') }}</button>
     </ModalOverlay>
 
     <div v-if="isHomeRoute" class="theme-controls">
       <button class="theme-toggle" type="button" @click="toggleTheme"
-        :aria-label="theme === 'phrolova-light' ? '切换到暗色模式' : '切换到亮色模式'">
+        :aria-label="theme === 'phrolova-light' ? t('settings.toggleDark') : t('settings.toggleLight')">
         <Icon :icon="theme === 'phrolova-light' ? 'ph:moon-duotone' : 'ph:sun-duotone'" />
       </button>
       <button class="theme-accent-btn" type="button" @click="showAccentPicker = !showAccentPicker"
-        aria-label="选择主题色">
+        :aria-label="t('settings.accent')">
         <Icon icon="ph:palette-duotone" />
         <span class="theme-accent-dot" :style="{ background: 'var(--gold)' }" />
       </button>
       <button class="theme-settings-btn" type="button" @click="showSettingsModal = true"
-        aria-label="个人设置">
+        :aria-label="t('settings.title')">
         <Icon icon="ph:gear-six-duotone" />
       </button>
       <Transition name="accent-pop">
         <div v-if="showAccentPicker" class="accent-picker">
-          <p class="accent-picker-title">主题色</p>
+          <p class="accent-picker-title">{{ t('settings.accent') }}</p>
           <div class="accent-grid">
             <button
               v-for="accent in ACCENTS"
@@ -210,7 +158,7 @@ function onVisibilityChange() {
               @click="selectAccent(accent.id)"
             >
               <span class="accent-swatch-dot" />
-              <span class="accent-swatch-label">{{ accent.label }}</span>
+              <span class="accent-swatch-label">{{ t(accent.label) }}</span>
             </button>
           </div>
         </div>
@@ -219,14 +167,14 @@ function onVisibilityChange() {
 
     <ModalOverlay v-if="showSettingsModal" panel-class="settings-modal" max-width="400px" @close="showSettingsModal = false">
       <header class="settings-modal-header">
-        <p class="settings-modal-kicker">Settings</p>
-        <h2 class="settings-modal-title">个人设置</h2>
+        <p class="settings-modal-kicker">{{ t('settings.kicker') }}</p>
+        <h2 class="settings-modal-title">{{ t('settings.title') }}</h2>
       </header>
       <div class="settings-modal-body">
         <div class="settings-row">
           <div class="settings-row-info">
-            <span class="settings-row-label">动画效果</span>
-            <span class="settings-row-desc">开启后，猜测记录将从左到右渐入显示</span>
+            <span class="settings-row-label">{{ t('settings.animations') }}</span>
+            <span class="settings-row-desc">{{ t('settings.animationsDesc') }}</span>
           </div>
           <button
             class="settings-switch"
@@ -238,6 +186,23 @@ function onVisibilityChange() {
           >
             <span class="settings-switch-thumb" />
           </button>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-label">{{ t('settings.language') }}</span>
+          </div>
+          <div class="settings-lang-options">
+            <button
+              v-for="loc in availableLocales"
+              :key="loc.value"
+              class="settings-lang-btn"
+              :class="{ 'settings-lang-btn--active': locale === loc.value }"
+              type="button"
+              @click="setLocale(loc.value)"
+            >
+              {{ loc.label }}
+            </button>
+          </div>
         </div>
       </div>
     </ModalOverlay>

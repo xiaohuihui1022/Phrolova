@@ -581,6 +581,17 @@ export class MatchmakerObject extends DurableObject {
     }
   }
 
+  // ── RPC: RoomObject 重赛时通知匹配器重新注册为活跃对局（roomCode 不变） ──
+  async registerRoom(roomCode: string): Promise<void> {
+    const existed = this.activeRooms.has(roomCode);
+    this.activeRooms.set(roomCode, { playerCount: 2, createdAt: Date.now() });
+    if (!existed) {
+      this.persistState();
+      console.log(`[MatchmakerDO.registerRoom] room=${roomCode} registered. activeRooms=${this.activeRooms.size}`);
+      this.broadcastPoolStats();
+    }
+  }
+
   private sendToPlayer(playerId: string, type: string, payload: unknown): void {
     const ws = this.connections.get(playerId);
     if (ws) {

@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 
 import Pagination from "@/components/shared/Pagination.vue";
 import TabGroup from "@/components/shared/TabGroup.vue";
 import type { QuizType, ResonatorNameEntry, SkeletonNameEntry, TabOption } from "@/types";
 import { useDictionaryStore } from "@/stores/dictionary";
 import { getCharacterAvatar, getSkeletonAvatar } from "@/utils/game";
+import { normalizeSearchText } from "@/utils/chinese-convert";
 
 const router = useRouter();
+const { t } = useI18n();
 const dictionaryStore = useDictionaryStore();
 const tab = ref<QuizType>("resonator");
 const search = ref("");
@@ -16,10 +19,25 @@ const loading = shallowRef(false);
 const page = ref(1);
 const PAGE_SIZE = 20;
 
-const tabOptions: TabOption[] = [
-  { key: "resonator", label: "共鸣者" },
-  { key: "skeleton", label: "声骸" },
-];
+const tabOptions = computed<TabOption[]>(() => [
+  { key: "resonator", label: t("multi.tabResonator") },
+  { key: "skeleton", label: t("multi.tabSkeleton") },
+]);
+
+// 过滤器字段名 → i18n key 映射
+const resonatorFilterLabelKey: Record<string, string> = {
+  attribute: "data.filterAttribute",
+  weapon: "data.filterWeapon",
+  birthplace: "data.filterBirthplace",
+  star_rating: "data.filterStarRating",
+};
+const skeletonFilterLabelKey: Record<string, string> = {
+  skill_attribute: "data.filterSkillAttribute",
+  cost: "data.filterCost",
+  is_aberration: "data.filterIsAberration",
+  set_name: "data.filterSetName",
+  drop_location: "data.filterDropLocation",
+};
 
 const characters = computed(() => dictionaryStore.resonatorNames);
 const skeletons = computed(() => dictionaryStore.skeletonNames);
@@ -69,7 +87,7 @@ function hasFilter(field: string, value: string | number): boolean {
 
 // ── Filtered + searched data ──
 const filteredCharacters = computed(() => {
-  const q = search.value.toLowerCase();
+  const q = normalizeSearchText(search.value);
   const filters = activeResFilter.value;
   return characters.value.filter(c => {
     if (q && !matchResonator(c, q)) return false;
@@ -82,7 +100,7 @@ const filteredCharacters = computed(() => {
 });
 
 const filteredSkeletons = computed(() => {
-  const q = search.value.toLowerCase();
+  const q = normalizeSearchText(search.value);
   const filters = activeSkelFilter.value;
   return skeletons.value.filter(s => {
     if (q && !matchSkeleton(s, q)) return false;
@@ -104,19 +122,19 @@ const pagedItems = computed((): any[] => {
 });
 
 function matchResonator(c: ResonatorNameEntry, q: string) {
-  return c.name.toLowerCase().includes(q)
-    || c.attribute.toLowerCase().includes(q)
-    || c.weapon.toLowerCase().includes(q)
-    || c.birthplace.toLowerCase().includes(q)
+  return normalizeSearchText(c.name).includes(q)
+    || normalizeSearchText(c.attribute).includes(q)
+    || normalizeSearchText(c.weapon).includes(q)
+    || normalizeSearchText(c.birthplace).includes(q)
     || String(c.version).includes(q);
 }
 
 function matchSkeleton(s: SkeletonNameEntry, q: string) {
-  return s.name.toLowerCase().includes(q)
-    || s.skill_attribute.toLowerCase().includes(q)
-    || s.set_name.toLowerCase().includes(q)
-    || s.drop_location.toLowerCase().includes(q)
-    || s.is_aberration.toLowerCase().includes(q)
+  return normalizeSearchText(s.name).includes(q)
+    || normalizeSearchText(s.skill_attribute).includes(q)
+    || normalizeSearchText(s.set_name).includes(q)
+    || normalizeSearchText(s.drop_location).includes(q)
+    || normalizeSearchText(s.is_aberration).includes(q)
     || String(s.cost).includes(q);
 }
 
@@ -143,9 +161,9 @@ function onSearchChange() {
   <div class="dp-page">
     <header class="dp-top">
       <button class="back-btn" @click="router.push('/')">
-        <Icon icon="ph:arrow-left-duotone" /> BACK
+        <Icon icon="ph:arrow-left-duotone" /> {{ t("leaderboard.back") }}
       </button>
-      <h1 class="dp-title">数据图鉴</h1>
+      <h1 class="dp-title">{{ t("data.pageTitle") }}</h1>
       <div class="dp-top-right" />
     </header>
 
@@ -153,29 +171,29 @@ function onSearchChange() {
 
     <div class="dp-search">
       <Icon icon="ph:magnifying-glass-duotone" class="dp-search-icon" />
-      <input v-model="search" class="dp-search-input" :placeholder="tab === 'resonator' ? '搜索角色名称或属性...' : '搜索声骸名称、属性或套装...'" @input="onSearchChange" />
+      <input v-model="search" class="dp-search-input" :placeholder="tab === 'resonator' ? t('data.searchPlaceholderResonator') : t('data.searchPlaceholderSkeleton')" @input="onSearchChange" />
     </div>
 
     <!-- Token filters -->
     <div class="dp-filters" v-if="!loading">
       <template v-if="tab === 'resonator'">
         <div v-for="(values, field) in resonatorFilters" :key="field" class="dp-filter-group">
-          <span class="dp-filter-label">{{ { attribute: '属性', weapon: '武器', birthplace: '出生地', star_rating: '星级' }[field as string] }}</span>
+          <span class="dp-filter-label">{{ t(resonatorFilterLabelKey[field as string]) }}</span>
           <button v-for="v in values" :key="v" class="dp-filter-chip" :class="{ 'dp-filter-chip--active': hasFilter(field as string, v) }" @click="toggleFilter(field as string, v)">{{ v }}</button>
         </div>
       </template>
       <template v-else>
         <div v-for="(values, field) in skeletonFilters" :key="field" class="dp-filter-group">
-          <span class="dp-filter-label">{{ { skill_attribute: '属性', cost: 'COST', is_aberration: '异相', set_name: '套装', drop_location: '位置' }[field as string] }}</span>
+          <span class="dp-filter-label">{{ t(skeletonFilterLabelKey[field as string]) }}</span>
           <button v-for="v in values" :key="v" class="dp-filter-chip" :class="{ 'dp-filter-chip--active': hasFilter(field as string, v) }" @click="toggleFilter(field as string, v)">{{ v }}</button>
         </div>
       </template>
     </div>
 
-    <div v-if="loading" class="dp-loading">加载中...</div>
+    <div v-if="loading" class="dp-loading">{{ t("data.loading") }}</div>
 
     <template v-else>
-      <p class="dp-count">{{ totalCount }} 条结果</p>
+      <p class="dp-count">{{ t("data.countResult", { count: totalCount }) }}</p>
 
       <div class="dp-grid" :class="{ 'dp-grid--empty': !pagedItems.length }">
         <template v-if="tab === 'resonator'">
@@ -188,10 +206,10 @@ function onSearchChange() {
               </div>
             </div>
             <dl class="dp-card-detail">
-              <div class="dp-row"><dt>属性</dt><dd>{{ char.attribute }}</dd></div>
-              <div class="dp-row"><dt>武器</dt><dd>{{ char.weapon }}</dd></div>
-              <div class="dp-row"><dt>出生地</dt><dd>{{ char.birthplace }}</dd></div>
-              <div class="dp-row"><dt>版本</dt><dd>{{ char.version }}</dd></div>
+              <div class="dp-row"><dt>{{ t("data.fieldAttribute") }}</dt><dd>{{ char.attribute }}</dd></div>
+              <div class="dp-row"><dt>{{ t("data.fieldWeapon") }}</dt><dd>{{ char.weapon }}</dd></div>
+              <div class="dp-row"><dt>{{ t("data.fieldBirthplace") }}</dt><dd>{{ char.birthplace }}</dd></div>
+              <div class="dp-row"><dt>{{ t("data.fieldVersion") }}</dt><dd>{{ char.version }}</dd></div>
             </dl>
           </div>
         </template>
@@ -201,17 +219,17 @@ function onSearchChange() {
               <img :src="getSkeletonAvatar(sk.name)" class="dp-card-avatar" alt="" loading="lazy" />
               <div class="dp-card-title">
                 <strong class="dp-card-name">{{ sk.name }}</strong>
-                <span class="dp-card-stars">COST {{ sk.cost }} · {{ sk.is_aberration === '有' ? '异相' : '常规' }}</span>
+                <span class="dp-card-stars">COST {{ sk.cost }} · {{ sk.is_aberration === '有' ? t('data.aberrationYes') : t('data.aberrationNo') }}</span>
               </div>
             </div>
             <dl class="dp-card-detail">
-              <div class="dp-row"><dt>技能属性</dt><dd>{{ sk.skill_attribute }}</dd></div>
-              <div class="dp-row"><dt>套装</dt><dd>{{ sk.set_name }}</dd></div>
-              <div class="dp-row"><dt>掉落位置</dt><dd>{{ sk.drop_location }}</dd></div>
+              <div class="dp-row"><dt>{{ t("data.fieldSkillAttribute") }}</dt><dd>{{ sk.skill_attribute }}</dd></div>
+              <div class="dp-row"><dt>{{ t("data.fieldSetName") }}</dt><dd>{{ sk.set_name }}</dd></div>
+              <div class="dp-row"><dt>{{ t("data.fieldDropLocation") }}</dt><dd>{{ sk.drop_location }}</dd></div>
             </dl>
           </div>
         </template>
-        <p v-if="!pagedItems.length" class="dp-empty">未找到匹配结果</p>
+        <p v-if="!pagedItems.length" class="dp-empty">{{ t("data.emptyResult") }}</p>
       </div>
 
       <Pagination v-if="totalPages > 1" :current="page" :total="totalCount" :size="PAGE_SIZE" @change="page = $event" />

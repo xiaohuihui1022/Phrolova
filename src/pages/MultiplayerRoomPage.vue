@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useRouter, onBeforeRouteLeave } from "vue-router";
+import { useI18n } from "vue-i18n";
 import gsap from "gsap";
 
 import FeedbackLegend from "@/components/game/FeedbackLegend.vue";
@@ -21,6 +22,7 @@ const authStore = useAuthStore();
 const dictionaryStore = useDictionaryStore();
 const multiGameStore = useMultiGameStore();
 const router = useRouter();
+const { t } = useI18n();
 const guessName = shallowRef("");
 const guessInputRef = useTemplateRef<{ focus: () => void; resolveFinalName: () => string }>("guessInput");
 
@@ -40,11 +42,11 @@ const names = computed(() =>
 );
 
 const battleTitle = computed(() => {
-  if (!multiGameStore.roomState) return "实时对战";
+  if (!multiGameStore.roomState) return t("multi.realtimeBattle");
   if (multiGameStore.roomState.quizType === "skeleton") {
-    return `声骸对战 / ${multiGameStore.roomState.difficulty === "easy" ? "简单" : "困难"}`;
+    return multiGameStore.roomState.difficulty === "easy" ? t("multi.skeletonBattleEasy") : t("multi.skeletonBattleHard");
   }
-  return "共鸣者对战 / 标准";
+  return t("multi.resonatorBattle");
 });
 
 // 是否为房主（创建房间路径下房主通过"开始对局"按钮启动对局）
@@ -86,21 +88,21 @@ const stagePromptTitle = computed(() => {
   const rs = multiGameStore.roomState;
   if (!rs) return "";
   if (rs.roomStatus === "waiting") {
-    if (!multiGameStore.opponent) return "等待对手加入...";
+    if (!multiGameStore.opponent) return t("multi.waitingOpponentJoin");
     // 随机匹配路径：自动开始
-    if (rs.isRandomMatch) return "对手已加入，即将开始...";
+    if (rs.isRandomMatch) return t("multi.opponentJoinedStarting");
     // 创建房间路径：根据角色显示不同提示
     if (isCreator.value) {
-      return guestReady.value ? "点击开始对局" : "等待对手准备...";
+      return guestReady.value ? t("multi.clickToStart") : t("multi.waitingOpponentReady");
     }
-    return myReady.value ? "已准备，等待房主开始" : "点击准备开始对局";
+    return myReady.value ? t("multi.readyWaitingHost") : t("multi.clickReadyToStart");
   }
-  if (rs.roomStatus === "countdown") return "对局即将开始";
-  if (rs.quizType === "skeleton") return "在下方输入声骸名称开始实时猜测";
-  return "在下方输入角色昵称开始实时猜测";
+  if (rs.roomStatus === "countdown") return t("multi.matchStarting");
+  if (rs.quizType === "skeleton") return t("multi.skeletonRealtimePrompt");
+  return t("multi.resonatorRealtimePrompt");
 });
 
-const stagePromptSubtitle = computed(() => "对手名称保持遮罩，颜色反馈与回合状态由服务端同步推进。");
+const stagePromptSubtitle = computed(() => t("multi.stageSubtitle"));
 
 const hasBattleHistory = computed(() =>
   Boolean((multiGameStore.me?.guesses.length ?? 0) || (multiGameStore.opponent?.guesses.length ?? 0)),
@@ -110,7 +112,7 @@ const roomHintText = computed(() => {
   const roomState = multiGameStore.roomState;
   if (!roomState) return "";
   const timer = roomState.countdownLeft || roomState.timeLeft || 0;
-  return `房间 ${roomState.roomCode} · 第 ${roomState.round} 局 / BO${roomState.bestOf} · 剩余 ${timer} 秒`;
+  return t("multi.roomHeader", { code: roomState.roomCode, round: roomState.round, bestOf: roomState.bestOf, timer });
 });
 
 const answerText = computed(() => multiGameStore.roomState?.target?.name ?? "");
@@ -118,17 +120,17 @@ const answerText = computed(() => multiGameStore.roomState?.target?.name ?? "");
 const dockHintText = computed(() => {
   const rs = multiGameStore.roomState;
   if (!rs) return "";
-  if (multiGameStore.canGuess) return "当前轮到你提交猜测";
-  if (rs.roomStatus === "countdown") return "对局即将开始";
+  if (multiGameStore.canGuess) return t("multi.yourTurn");
+  if (rs.roomStatus === "countdown") return t("multi.matchStarting");
   if (rs.roomStatus === "waiting") {
-    if (!multiGameStore.opponent) return "等待对手加入...";
+    if (!multiGameStore.opponent) return t("multi.waitingOpponentJoin");
     // 随机匹配路径：自动开始
-    if (rs.isRandomMatch) return "对手已加入，即将开始...";
+    if (rs.isRandomMatch) return t("multi.opponentJoinedStarting");
     // 创建房间路径：根据角色提示
-    if (isCreator.value) return guestReady.value ? "点击开始对局" : "等待对手准备...";
-    return myReady.value ? "已准备，等待房主开始" : "点击准备开始对局";
+    if (isCreator.value) return guestReady.value ? t("multi.clickToStart") : t("multi.waitingOpponentReady");
+    return myReady.value ? t("multi.readyWaitingHost") : t("multi.clickReadyToStart");
   }
-  return "等待系统推进或对手行动";
+  return t("multi.waitingSystem");
 });
 
 const myWins = computed(() => multiGameStore.me?.roundWins ?? 0);
@@ -136,7 +138,7 @@ const opponentWins = computed(() => multiGameStore.opponent?.roundWins ?? 0);
 const opponentLabel = computed(() => {
   const opp = multiGameStore.opponent;
   const oppId = opp?.playerId || multiGameStore.roomState?.opponentId || "";
-  if (!oppId) return "等待加入";
+  if (!oppId) return t("multi.waitingJoin");
   return opp?.dbId != null ? `${oppId} #${opp.dbId}` : oppId;
 });
 const targetBestOf = computed(() => multiGameStore.roomState?.bestOf ?? 1);
@@ -286,32 +288,35 @@ watch(
   },
 );
 
-const matchResultText = computed(() => {
+type MatchOutcome = "unknown" | "lostByForfeit" | "winByForfeit" | "draw" | "victory" | "defeat";
+
+const matchOutcome = computed<MatchOutcome>(() => {
   const rs = multiGameStore.roomState;
-  if (!rs) return "未知结果";
+  if (!rs) return "unknown";
 
   // 优先判断弃权场景
   const forfeitBy = rs.forfeitBy;
   if (forfeitBy) {
-    if (forfeitBy === authStore.playerId) {
-      return "失败（已弃权）";
-    } else {
-      return "胜利（对手弃权）";
-    }
+    return forfeitBy === authStore.playerId ? "lostByForfeit" : "winByForfeit";
   }
 
   // 正常胜负判定：基于 overallWinner
   if (rs.overallWinner === null || rs.overallWinner === undefined) {
-    return "平局";
+    return "draw";
   }
   const myIdx = rs.players.findIndex(p => p.isMe);
-  return rs.overallWinner === myIdx ? "胜利" : "失败";
+  return rs.overallWinner === myIdx ? "victory" : "defeat";
 });
+
+const matchResultText = computed(() => t(`multi.${matchOutcome.value}`));
+
+const isWinLike = computed(() => matchOutcome.value === "victory" || matchOutcome.value === "winByForfeit");
+const isDraw = computed(() => matchOutcome.value === "draw");
 
 const matchScoreText = computed(() => {
   const d = multiGameStore.matchScoreDelta;
   if (!d) return "";
-  return d > 0 ? `+${d} 分` : `${d} 分`;
+  return d > 0 ? t("multi.scorePlus", { n: d }) : t("multi.scoreMinus", { n: d });
 });
 
 // 对手处于重连宽限期（断开连接但尚未超时弃权）
@@ -325,9 +330,9 @@ const opponentReconnecting = computed(() => {
 // 重连 banner 文案：不同阶段对应的后续处理不同
 const reconnectBannerText = computed(() => {
   const status = multiGameStore.roomState?.roomStatus;
-  if (status === "playing") return "对手正在重新连接...（30 秒内未重连将判负）";
-  if (status === "finished") return "对手正在重新连接...（30 秒内未重连将视为离开房间）";
-  return "对手正在重新连接...（30 秒内未重连将离开房间）";
+  if (status === "playing") return t("multi.reconnectPlaying");
+  if (status === "finished") return t("multi.reconnectFinished");
+  return t("multi.reconnectWaiting");
 });
 
 function closeMatchResult() { showMatchResult.value = false; }
@@ -442,7 +447,7 @@ watch(
       <div class="game-shell">
         <GlassHeader
           class="mr-glass-header"
-          kicker="多人 · 房间对局"
+          :kicker="t('multi.roomKicker')"
           :title="battleTitle"
           back-to="/multi"
         >
@@ -451,12 +456,12 @@ watch(
             <button
               v-if="hasBattleHistory"
               class="mr-layout-toggle glass-header-btn"
-              :title="boardLayout === 'rows' ? '切换为左右布局' : '切换为上下布局'"
+              :title="boardLayout === 'rows' ? t('multi.toggleLayoutRows') : t('multi.toggleLayoutCols')"
               @click="toggleBoardLayout"
             >
               <Icon :icon="boardLayout === 'rows' ? 'ph:columns-duotone' : 'ph:rows-duotone'" aria-hidden="true" />
             </button>
-            <button class="glass-header-btn glass-header-btn--danger" @click="leaveRoom" title="退出房间">
+            <button class="glass-header-btn glass-header-btn--danger" @click="leaveRoom" :title="t('multi.exitRoom')">
               <Icon icon="ph:sign-out-duotone" aria-hidden="true" />
             </button>
           </template>
@@ -472,17 +477,17 @@ watch(
           <div class="mr-score-panel">
             <div class="score-bar" style="border:none;background:transparent;padding:0">
               <div class="score-item">
-                <span class="score-label">我方</span>
+                <span class="score-label">{{ t("multi.mine") }}</span>
                 <span class="score-value" :class="{ 'score-value--accent': myWins >= winsNeeded }">{{ myWins }}</span>
               </div>
               <div class="score-divider">VS</div>
               <div class="score-item">
-                <span class="score-label">对手</span>
+                <span class="score-label">{{ t("multi.opponent") }}</span>
                 <span class="score-value" :class="{ 'score-value--accent': opponentWins >= winsNeeded }">{{ opponentWins }}</span>
               </div>
               <div class="score-divider score-divider--gap">·</div>
               <div class="score-item">
-                <span class="score-label">先胜</span>
+                <span class="score-label">{{ t("multi.firstToWin") }}</span>
                 <span class="score-value score-value--accent">{{ winsNeeded }}</span>
               </div>
             </div>
@@ -493,7 +498,7 @@ watch(
           <div class="stage-head">
             <div class="stage-copy">
               <p class="stage-kicker">ARENA</p>
-              <h2 class="stage-title">{{ hasBattleHistory ? "双方猜测进度" : stagePromptTitle }}</h2>
+              <h2 class="stage-title">{{ hasBattleHistory ? t("multi.bothProgress") : stagePromptTitle }}</h2>
               <p class="stage-sub">{{ hasBattleHistory ? stagePromptSubtitle : roomHintText }}</p>
             </div>
             <FeedbackLegend v-if="hasBattleHistory" />
@@ -513,8 +518,8 @@ watch(
                     class="mr-ready-chip-icon"
                     aria-hidden="true"
                   />
-                  <span class="mr-ready-chip-label">{{ isCreator ? "对手" : "你" }}</span>
-                  <span class="mr-ready-chip-tag">{{ guestReady ? "已准备" : "未准备" }}</span>
+                  <span class="mr-ready-chip-label">{{ isCreator ? t("multi.chipOpponent") : t("multi.chipYou") }}</span>
+                  <span class="mr-ready-chip-tag">{{ guestReady ? t("multi.ready") : t("multi.notReady") }}</span>
                 </div>
               </div>
 
@@ -526,7 +531,7 @@ watch(
                 @click="onStartMatch"
               >
                 <Icon icon="ph:play-duotone" class="btn-icon" aria-hidden="true" />
-                开始对局
+                {{ t("multi.startMatchBtn") }}
               </button>
 
               <!-- 非房主：准备按钮 -->
@@ -536,25 +541,25 @@ watch(
                 @click="onReady"
               >
                 <Icon icon="ph:check-duotone" class="btn-icon" aria-hidden="true" />
-                准备
+                {{ t("multi.readyBtn") }}
               </button>
 
               <!-- 非房主已准备：等待提示 -->
-              <p v-else class="mr-ready-waiting">已准备，等待房主开始对局...</p>
+              <p v-else class="mr-ready-waiting">{{ t("multi.readyWaitingHostLong") }}</p>
             </div>
           </div>
 
           <div v-if="hasBattleHistory" class="mr-boards" :class="`mr-boards--${boardLayout}`">
             <div class="mr-board-panel">
               <div class="mr-board-head">
-                <h3 class="mr-board-title"><Icon icon="ph:user-duotone" class="mr-board-head-icon" /> 我的猜测</h3>
+                <h3 class="mr-board-title"><Icon icon="ph:user-duotone" class="mr-board-head-icon" /> {{ t("multi.myGuessesTitle") }}</h3>
                 <span class="mr-board-meta">{{ multiGameStore.me?.attemptsUsed ?? 0 }} / {{ multiGameStore.me?.attemptsLimit ?? 0 }}</span>
               </div>
               <div ref="myBoardBody" class="mr-board-body">
                 <GuessTable
                   :quiz-type="multiGameStore.roomState.quizType"
                   :rows="myGuesses"
-                  empty-label="等待我方提交第一条猜测"
+                  :empty-label="t('multi.emptyMyGuesses')"
                   :target-version="multiGameStore.roomState.targetVersion"
                   :target-cost="multiGameStore.roomState.targetCost"
                 />
@@ -563,14 +568,14 @@ watch(
 
             <div class="mr-board-panel">
               <div class="mr-board-head">
-                <h3 class="mr-board-title"><Icon icon="ph:user-circle-duotone" class="mr-board-head-icon" /> 对手猜测</h3>
+                <h3 class="mr-board-title"><Icon icon="ph:user-circle-duotone" class="mr-board-head-icon" /> {{ t("multi.opponentGuessesTitle") }}</h3>
                 <span class="mr-board-meta">{{ opponentLabel }}</span>
               </div>
               <div class="mr-board-body">
                 <GuessTable
                   :quiz-type="multiGameStore.roomState.quizType"
                   :rows="opponentGuesses"
-                  empty-label="等待对手提交第一条猜测"
+                  :empty-label="t('multi.emptyOpponentGuesses')"
                   :target-version="multiGameStore.roomState.targetVersion"
                   :target-cost="multiGameStore.roomState.targetCost"
                 />
@@ -581,7 +586,7 @@ watch(
 
         <footer class="game-dock mr-dock">
           <div class="dock-copy">
-            <span class="dock-label"><Icon icon="ph:keyboard-duotone" class="dock-label-icon" /> 提交猜测</span>
+            <span class="dock-label"><Icon icon="ph:keyboard-duotone" class="dock-label-icon" /> {{ t("single.submitGuess") }}</span>
             <span class="dock-meta">{{ dockHintText }}</span>
           </div>
           <div class="dock-input-row">
@@ -591,11 +596,11 @@ watch(
               :disabled="!multiGameStore.canGuess"
               :names="names"
               :quiz-type="multiGameStore.roomState?.quizType"
-              :placeholder="multiGameStore.roomState?.quizType === 'skeleton' ? '输入声骸名称' : '输入角色昵称'"
+              :placeholder="multiGameStore.roomState?.quizType === 'skeleton' ? t('single.skeletonPlaceholder') : t('single.resonatorPlaceholder')"
               @submit="submitGuess"
             />
             <button class="btn btn-submit" :disabled="!multiGameStore.canGuess" @click="handleClickSubmit">
-              <Icon icon="ph:paper-plane-right-duotone" class="btn-icon" /> 提交
+              <Icon icon="ph:paper-plane-right-duotone" class="btn-icon" /> {{ t("single.submit") }}
             </button>
           </div>
         </footer>
@@ -603,8 +608,8 @@ watch(
     </template>
 
     <div v-else class="mr-empty-shell">
-      <EmptyState icon="ph:warning-circle-duotone" kicker="NOTICE" title="当前没有活跃房间" description="刷新后会自动尝试恢复房间，也可以返回大厅重新创建或加入一场对局。">
-        <RouterLink class="btn" to="/multi" style="display:inline-flex;text-decoration:none">返回大厅</RouterLink>
+      <EmptyState icon="ph:warning-circle-duotone" kicker="NOTICE" :title="t('multi.noActiveRoom')" :description="t('multi.noActiveRoomDesc')">
+        <RouterLink class="btn" to="/multi" style="display:inline-flex;text-decoration:none">{{ t("multi.backToLobby") }}</RouterLink>
       </EmptyState>
     </div>
 
@@ -618,14 +623,14 @@ watch(
               />
             </div>
             <p class="mr-round-popup-title">
-              {{ multiGameStore.roundResult.iWon === null ? '本局平局' : multiGameStore.roundResult.iWon ? '本局获胜' : '本局对方胜' }}
+              {{ multiGameStore.roundResult.iWon === null ? t('multi.roundDraw') : multiGameStore.roundResult.iWon ? t('multi.roundWin') : t('multi.roundLose') }}
             </p>
-            <p class="mr-round-popup-score">我方 {{ multiGameStore.roundResult.myWins }} : {{ multiGameStore.roundResult.opponentWins }} 对手</p>
+            <p class="mr-round-popup-score">{{ t("multi.roundScore", { my: multiGameStore.roundResult.myWins, opp: multiGameStore.roundResult.opponentWins }) }}</p>
             <p v-if="multiGameStore.roundResult.answerText" class="mr-round-popup-answer">
-              <span class="mr-round-popup-answer-label">正确答案</span>
+              <span class="mr-round-popup-answer-label">{{ t("single.correctAnswer") }}</span>
               <span class="mr-round-popup-answer-value">{{ multiGameStore.roundResult.answerText }}</span>
             </p>
-            <p class="mr-round-popup-hint">点击关闭 · 5 秒后自动关闭</p>
+            <p class="mr-round-popup-hint">{{ t("multi.popupCloseHint") }}</p>
           </div>
         </div>
       </Transition>
@@ -634,14 +639,14 @@ watch(
     <ModalOverlay v-if="showMatchResult" panel-class="mr-result-modal" max-width="1100px" no-close @close="closeMatchResult">
       <div class="mr-result-header">
         <Icon
-          :icon="matchResultText === '胜利' ? 'ph:crown-fill' : matchResultText === '平局' ? 'ph:handshake-duotone' : 'ph:hand-waving-duotone'"
+          :icon="isWinLike ? 'ph:crown-fill' : isDraw ? 'ph:handshake-duotone' : 'ph:hand-waving-duotone'"
           class="mr-result-icon"
-          :class="{ 'mr-result-icon--win': matchResultText === '胜利' }"
+          :class="{ 'mr-result-icon--win': isWinLike }"
         />
-        <h2 class="mr-result-title" :class="{ 'mr-result-title--win': matchResultText === '胜利' }">{{ matchResultText }}</h2>
+        <h2 class="mr-result-title" :class="{ 'mr-result-title--win': isWinLike }">{{ matchResultText }}</h2>
         <p v-if="matchScoreText" class="mr-result-score">{{ matchScoreText }}</p>
         <div v-if="answerText" class="mr-result-answer">
-          <span class="mr-result-answer-label">正确答案</span>
+          <span class="mr-result-answer-label">{{ t("single.correctAnswer") }}</span>
           <span class="mr-result-answer-value">{{ answerText }}</span>
         </div>
       </div>
@@ -657,10 +662,10 @@ watch(
             :class="{ 'mr-icon-spin': rematchPending }"
             aria-hidden="true"
           />
-          {{ rematchPending ? "等待对方同意..." : "继续游戏" }}
+          {{ rematchPending ? t("multi.waitingAgreement") : t("multi.continueGame") }}
         </button>
-        <button class="btn-ghost" @click="openFullResultPage">查看完整对局</button>
-        <button class="btn-ghost btn-ghost--danger" @click="closeMatchResult(); leaveRoom();">退出房间</button>
+        <button class="btn-ghost" @click="openFullResultPage">{{ t("multi.viewFullMatch") }}</button>
+        <button class="btn-ghost btn-ghost--danger" @click="closeMatchResult(); leaveRoom();">{{ t("multi.exitRoom") }}</button>
       </div>
     </ModalOverlay>
   </div>

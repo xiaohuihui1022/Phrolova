@@ -8,6 +8,7 @@ import {
 } from './authSession';
 import { useToast } from '@/composables/useToast';
 import { readCookie } from '@/composables/useStorage';
+import { i18n } from '@/i18n';
 
 // NOTE: 循环依赖安全：client.ts → authSession.ts（✅ 单向，authSession 不回 import client）
 //       useToast 是 composable 单例，值类型安全
@@ -178,7 +179,7 @@ api.interceptors.response.use(
     if (!error.response) {
       // 不重复 toast 同一错误（这里无法稳定区分"同时两个请求都超时"，但 NETWORK_ERROR 对用户是同一个概念，
       //   给个固定 id 让 toast 层合并）
-      toast.error('网络连接失败，请检查网络后重试', { id: -1, autoClose: true, duration: 4000 });
+      toast.error(i18n.global.t('errors.NETWORK_ERROR'), { id: -1, autoClose: true, duration: 4000 });
       const wrapped = new AxiosError(
         'NETWORK_ERROR',
         AxiosError.ERR_NETWORK,
@@ -199,30 +200,27 @@ api.interceptors.response.use(
 /**
  * 统一错误码 → 用户可读文案
  *   调用面：页面 try/catch 统一 errMsg(reason)；其他 composables 也可直接用
+ *   优先级：error_code i18n 映射 → 后端 message → 网络错误 → 默认
  */
 export function errMsg(err: unknown): string {
   if (isAxiosError(err)) {
     const code = String((err as any).error_code ?? (err.response?.data as Record<string, unknown> | undefined)?.error_code ?? '');
-    // 优先级 1：error_code 映射表（错误码唯一来源，不翻译多语言）
-    const mapped = CODE_MESSAGE[code];
-    if (mapped) return mapped;
+    // 优先级 1：error_code → i18n 映射
+    if (code) {
+      const t = i18n.global.t;
+      const key = `errors.${code}`;
+      const translated = t(key);
+      // vue-i18n 在 key 缺失时返回 key 本身，检测是否真正命中
+      if (translated && translated !== key) return translated;
+    }
     // 优先级 2：后端 message 字段（业务错误如"验证码错误或已过期"）
     const backendMsg = (err.response?.data as Record<string, unknown> | undefined)?.message;
     if (typeof backendMsg === 'string' && backendMsg.length) return backendMsg;
     // 优先级 3：网络错误兜底
-    if (!err.response) return '网络连接失败，请检查网络后重试';
+    if (!err.response) return i18n.global.t('errors.networkError');
     // 优先级 4：默认
-    return '请求失败，请稍后重试';
+    return i18n.global.t('errors.default');
   }
   if (err instanceof Error && err.message) return err.message;
-  return '请求失败';
+  return i18n.global.t('errors.requestFailed');
 }
-
-const CODE_MESSAGE: Record<string, string> = {
-  NETWORK_ERROR: '网络连接失败，请检查网络后重试',
-  AUTH_EXPIRED: '登录状态已过期，请重新登录',
-  AUTH_REQUIRED: '请先登录',
-  ADMIN_AUTH_REQUIRED: '管理员登录已过期，请重新登录',
-  SCRYPT_UNAVAILABLE: '当前环境不支持旧密码验证，请重置密码',
-  INTERNAL_ERROR: '服务器内部错误，请稍后重试',
-};

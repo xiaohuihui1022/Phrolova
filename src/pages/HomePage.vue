@@ -1,20 +1,26 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, reactive, shallowRef, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, shallowRef, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import { useI18n } from "vue-i18n";
 import gsap from "gsap";
+
+import { i18n } from "@/i18n";
 
 import ModalOverlay from "@/components/shared/ModalOverlay.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useMultiGameStore } from "@/stores/multiGame";
 import type { CaptchaResponse } from "@/types";
 import { errMsg } from "@/api/client";
-import { fetchCaptcha, fetchOnlineStats, fetchScryptParams } from "@/api";
+import { fetchCaptcha, fetchScryptParams } from "@/api";
 import { computeScryptHex } from "@/lib/scrypt-client";
 import { getCookieConsent, setCookieConsent } from "@/composables/useStorage";
+import { useOnlineCount } from "@/composables/useOnlineCount";
 
 const route = useRoute();
 const authStore = useAuthStore();
 const multiGameStore = useMultiGameStore();
+const { t, locale } = useI18n();
+const { onlineCount, onlineConnected } = useOnlineCount();
 
 const PORTRAIT_POOL = [
   { src: "/media/frolova.png", alt: "弗洛洛" },
@@ -94,7 +100,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   ctx?.revert();
-  stopOnlinePoll();
 });
 
 const ANNOUNCE_KEY = "phrolova_announcement_v1";
@@ -102,37 +107,6 @@ const showAnnouncement = shallowRef(false);
 const showCookieConsent = shallowRef(false);
 const showAuthModal = shallowRef(false);
 
-// ── 全站在线人数 ──
-const onlineCount = ref(0);
-const onlineLoading = shallowRef(true);
-let onlinePollTimer: number | null = null;
-const ONLINE_POLL_INTERVAL = 30 * 1000; // 30 秒轮询
-
-async function loadOnlineCount() {
-  try {
-    const data = await fetchOnlineStats();
-    onlineCount.value = Math.max(0, Number(data.online_count) || 0);
-  } catch {
-    // 静默失败，不影响首页体验
-  } finally {
-    onlineLoading.value = false;
-  }
-}
-
-function startOnlinePoll() {
-  stopOnlinePoll();
-  loadOnlineCount();
-  onlinePollTimer = window.setInterval(() => {
-    loadOnlineCount();
-  }, ONLINE_POLL_INTERVAL);
-}
-
-function stopOnlinePoll() {
-  if (onlinePollTimer !== null) {
-    clearInterval(onlinePollTimer);
-    onlinePollTimer = null;
-  }
-}
 const authMode = shallowRef<"login" | "register">("login");
 const resetMode = shallowRef(false);
 const captchaImage = shallowRef("");
@@ -152,13 +126,18 @@ const resetForm = reactive({
 const upgrading = shallowRef(false);
 
 const menuItems = [
-  { cn: "单人游戏", en: "Single Player", to: "/single", icon: "ph:user-duotone" },
-  { cn: "多人对战", en: "Multiplayer", to: "/multi", icon: "ph:users-three-duotone" },
-  { cn: "数据图鉴", en: "Database", to: "/data", icon: "ph:database-duotone" },
-  { cn: "机制规则", en: "Game Rules", to: "/rules", icon: "ph:book-open-text-duotone" },
-  { cn: "共鸣榜", en: "Leaderboard", to: "/leaderboard", icon: "ph:trophy-duotone" },
-  { cn: "致谢名单", en: "Acknowledgements", to: "/acknowledgements", icon: "ph:hand-heart-duotone" },
+  { labelKey: "nav.singlePlayer", enKey: "nav.singlePlayer", to: "/single", icon: "ph:user-duotone" },
+  { labelKey: "nav.multiplayer", enKey: "nav.multiplayer", to: "/multi", icon: "ph:users-three-duotone" },
+  { labelKey: "nav.database", enKey: "nav.database", to: "/data", icon: "ph:database-duotone" },
+  { labelKey: "nav.gameRules", enKey: "nav.gameRules", to: "/rules", icon: "ph:book-open-text-duotone" },
+  { labelKey: "nav.leaderboard", enKey: "nav.leaderboard", to: "/leaderboard", icon: "ph:trophy-duotone" },
+  { labelKey: "nav.acknowledgements", enKey: "nav.acknowledgements", to: "/acknowledgements", icon: "ph:hand-heart-duotone" },
 ] as const;
+
+/** 获取指定 key 的英文翻译（不受当前 locale 影响） */
+function enT(key: string) {
+  return i18n.global.t(key, {}, { locale: "en" });
+}
 
 async function loadCaptcha() {
   const data = await fetchCaptcha();
@@ -190,11 +169,11 @@ async function submitAuth() {
       resetForm.newPassword = "";
       resetForm.confirmPassword = "";
       resetForm.captchaText = "";
-      localError.value = "检测到旧版密码格式，请输入旧密码并设置新密码以升级";
+      localError.value = t('auth.scryptDetected');
       loadCaptcha().catch(() => { /* ignore */ });
       return;
     }
-    localError.value = errMsg(reason) || "账号操作失败";
+    localError.value = errMsg(reason) || t('auth.accountFailed');
     await loadCaptcha();
     form.captchaText = "";
   }
@@ -203,15 +182,15 @@ async function submitAuth() {
 async function submitResetPassword() {
   localError.value = "";
   if (!resetForm.oldPassword) {
-    localError.value = "请输入旧密码以验证身份";
+    localError.value = t('auth.oldPasswordRequired');
     return;
   }
   if (resetForm.newPassword.length < 6) {
-    localError.value = "新密码至少 6 位";
+    localError.value = t('auth.newPasswordTooShort');
     return;
   }
   if (resetForm.newPassword !== resetForm.confirmPassword) {
-    localError.value = "两次输入的密码不一致";
+    localError.value = t('auth.passwordMismatch');
     return;
   }
 
@@ -233,7 +212,7 @@ async function submitResetPassword() {
     });
     closeAuthModal();
   } catch (reason) {
-    localError.value = errMsg(reason) || "密码升级失败";
+    localError.value = errMsg(reason) || t('auth.upgradeFailed');
     await loadCaptcha();
     resetForm.captchaText = "";
   } finally {
@@ -254,7 +233,7 @@ function openAuthModal(mode: "login" | "register" = "login") {
   resetForm.confirmPassword = "";
   resetForm.captchaText = "";
   loadCaptcha().catch(() => {
-    localError.value = "验证码加载失败";
+    localError.value = t('auth.captchaLoadFailed');
   });
 }
 
@@ -269,9 +248,6 @@ function handleLogout() {
 }
 
 onMounted(async () => {
-  // 启动在线人数轮询
-  startOnlinePoll();
-
   // 首次访问公告弹窗
   try {
     if (!localStorage.getItem(ANNOUNCE_KEY)) {
@@ -312,14 +288,15 @@ function declineCookies() {
   <section class="page-shell" @mousemove="onMouseMove">
     <div id="start-menu" class="home-stage">
       <div class="home-title-block">
-        <h1 class="home-title">弗一把</h1>
-        <p class="home-subtitle">Phrolova</p>
-        <div class="home-online-badge" :title="`${onlineCount} 位玩家在线`">
-          <span class="home-online-dot" :class="{ 'home-online-dot--active': !onlineLoading && onlineCount > 0 }"></span>
-          <span class="home-online-text">
-            <template v-if="onlineLoading">加载中...</template>
-            <template v-else>{{ onlineCount }} 位玩家在线</template>
-          </span>
+        <h1 class="home-title">{{ t('home.title') }}</h1>
+        <p class="home-subtitle">{{ t('home.subtitle') }}</p>
+        <div v-if="onlineConnected" class="home-online-badge">
+          <span class="home-online-dot home-online-dot--active"></span>
+          <span class="home-online-text">{{ t('home.onlineCount', { count: onlineCount }) }}</span>
+        </div>
+        <div v-else class="home-online-badge">
+          <span class="home-online-dot"></span>
+          <span class="home-online-text">{{ t('home.connecting') }}</span>
         </div>
       </div>
       <div class="home-portrait" :key="frolovaKey" ref="frolovaRef">
@@ -334,8 +311,8 @@ function declineCookies() {
             <RouterLink class="menu-item" :to="item.to">
               <Icon :icon="item.icon" class="menu-icon" aria-hidden="true" />
               <span class="menu-text">
-                <span class="cn">{{ item.cn }}</span>
-                <span class="en">{{ item.en }}</span>
+                <span class="cn">{{ t(item.labelKey) }}</span>
+                <span v-if="locale !== 'en'" class="en">{{ enT(item.enKey) }}</span>
               </span>
             </RouterLink>
           </li>
@@ -344,17 +321,17 @@ function declineCookies() {
 
       <div class="home-detail">
         <div v-if="!authStore.isAuthenticated" class="home-detail-card home-detail-card--ghost">
-          <span class="feature-panel-kicker">SIGN IN</span>
-          <strong>登录后保存进度与排行</strong>
-          <p>登录后才能解锁多人对战、排行榜和房间续连。</p>
+          <span class="feature-panel-kicker">{{ t('home.signInKicker') }}</span>
+          <strong>{{ t('home.signInCta') }}</strong>
+          <p>{{ t('home.signInDesc') }}</p>
           <button class="home-detail-link" type="button" @click="openAuthModal('login')">
             <Icon icon="ph:sign-in-duotone" class="home-detail-link-icon" aria-hidden="true" />
-            ENTER
+            {{ t('home.signInBtn') }}
           </button>
         </div>
 
         <div v-else class="home-detail-card home-identity-card">
-          <span class="feature-panel-kicker">PLAYER</span>
+          <span class="feature-panel-kicker">{{ t('home.playerKicker') }}</span>
           <div class="home-identity-header">
             <span class="home-identity-avatar">{{ authStore.playerId?.charAt(0)?.toUpperCase() }}</span>
             <strong class="home-identity-name">{{ authStore.playerId }}</strong>
@@ -366,26 +343,26 @@ function declineCookies() {
                 <Icon icon="ph:coin-duotone" class="home-stat-icon" aria-hidden="true" />
                 {{ authStore.stats.score }}
               </span>
-              <span class="home-identity-stat-label">积分</span>
+              <span class="home-identity-stat-label">{{ t('home.scoreLabel') }}</span>
             </div>
             <div class="home-identity-stat">
               <span class="home-identity-stat-value">
                 <Icon icon="ph:crown-duotone" class="home-stat-icon" aria-hidden="true" />
                 {{ authStore.stats.wins }}
               </span>
-              <span class="home-identity-stat-label">胜场</span>
+              <span class="home-identity-stat-label">{{ t('home.winsLabel') }}</span>
             </div>
             <div class="home-identity-stat">
               <span class="home-identity-stat-value">
                 <Icon icon="ph:game-controller-duotone" class="home-stat-icon" aria-hidden="true" />
                 {{ authStore.stats.matches }}
               </span>
-              <span class="home-identity-stat-label">总场次</span>
+              <span class="home-identity-stat-label">{{ t('home.matchesLabel') }}</span>
             </div>
           </div>
           <div class="home-identity-links">
-            <RouterLink class="home-detail-link" to="/auth">账号设置</RouterLink>
-            <button class="home-detail-link" type="button" @click="handleLogout">退出登录</button>
+            <RouterLink class="home-detail-link" to="/auth">{{ t('home.accountSettings') }}</RouterLink>
+            <button class="home-detail-link" type="button" @click="handleLogout">{{ t('home.logout') }}</button>
           </div>
         </div>
       </div>
@@ -396,7 +373,7 @@ function declineCookies() {
         </a>
         <span class="home-social-divider">·</span>
         <a href="https://phrolova.usotsuki-kaze.com/" target="_blank" rel="noopener" class="home-social-link">
-          <Icon icon="ph:link-duotone" /> 友链
+          <Icon icon="ph:link-duotone" /> {{ t('home.friendLink') }}
         </a>
         <span class="home-social-divider">·</span>
         <a target="_blank"
@@ -409,20 +386,20 @@ function declineCookies() {
     <ModalOverlay v-if="showAnnouncement" panel-class="announce-modal" max-width="480px" @close="closeAnnouncement">
       <div class="announce-content">
         <div class="announce-icon"><Icon icon="ph:megaphone-duotone" /></div>
-        <h2 class="announce-title">网站全面升级公告</h2>
+        <h2 class="announce-title">{{ t('home.announcementTitle') }}</h2>
         <div class="announce-body">
-          <p>欢迎来到「弗一把」！网站已进行全面的功能与 UI 升级，带来更好的游戏体验。</p>
+          <p>{{ t('home.announcementBody') }}</p>
           <div class="announce-section">
-            <p class="announce-section-title"><Icon icon="ph:warning-circle-duotone" /> 老用户注意</p>
-            <p>首次登录时会要求重置密码以升级安全策略，您可以重置为与原来相同的密码。</p>
+            <p class="announce-section-title"><Icon icon="ph:warning-circle-duotone" /> {{ t('home.announcementOldUserTitle') }}</p>
+            <p>{{ t('home.announcementOldUserBody') }}</p>
           </div>
           <div class="announce-section">
-            <p class="announce-section-title"><Icon icon="ph:chat-circle-dots-duotone" /> 加入官方QQ群</p>
-            <p>群号：<strong>457323277</strong>，享受与群友对战、网站最新内容内测、问题反馈等专属功能！</p>
+            <p class="announce-section-title"><Icon icon="ph:chat-circle-dots-duotone" /> {{ t('home.announcementQQTitle') }}</p>
+            <p>{{ t('home.announcementQQBody') }}</p>
           </div>
         </div>
         <button class="announce-btn" type="button" @click="closeAnnouncement">
-          <Icon icon="ph:check-circle-duotone" /> 我知道了
+          <Icon icon="ph:check-circle-duotone" /> {{ t('home.announcementBtn') }}
         </button>
       </div>
     </ModalOverlay>
@@ -430,7 +407,7 @@ function declineCookies() {
     <ModalOverlay v-if="showAuthModal" panel-class="auth-modal" max-width="400px" @close="closeAuthModal">
       <header class="auth-modal-header">
         <p class="auth-modal-kicker">Account</p>
-        <h2 class="auth-modal-title">{{ resetMode ? "密码升级" : (authMode === "login" ? "账号登录" : "创建账号") }}</h2>
+        <h2 class="auth-modal-title">{{ resetMode ? t('home.authTitleReset') : (authMode === "login" ? t('home.authTitle') : t('home.authTitleRegister')) }}</h2>
       </header>
 
       <div v-if="localError || authStore.error" class="auth-modal-error">
@@ -440,41 +417,41 @@ function declineCookies() {
       <div class="auth-modal-body">
         <!-- 密码升级表单（需验证旧密码） -->
         <template v-if="resetMode">
-          <p class="auth-modal-hint">账号 <strong>{{ form.username }}</strong> 使用的是旧版密码格式。请输入旧密码验证身份后设置新密码。</p>
+          <p class="auth-modal-hint">{{ t('home.authResetHint', { username: form.username }) }}</p>
 
           <label class="auth-field">
-            <span class="auth-field-label">旧密码</span>
-            <input v-model="resetForm.oldPassword" class="auth-input" type="password" placeholder="输入当前密码验证身份" />
+            <span class="auth-field-label">{{ t('home.authOldPassword') }}</span>
+            <input v-model="resetForm.oldPassword" class="auth-input" type="password" :placeholder="t('home.authOldPasswordPlaceholder')" />
           </label>
 
           <label class="auth-field">
-            <span class="auth-field-label">新密码</span>
-            <input v-model="resetForm.newPassword" class="auth-input" type="password" placeholder="至少 6 位新密码" />
+            <span class="auth-field-label">{{ t('home.authNewPassword') }}</span>
+            <input v-model="resetForm.newPassword" class="auth-input" type="password" :placeholder="t('home.authNewPasswordPlaceholder')" />
           </label>
 
           <label class="auth-field">
-            <span class="auth-field-label">确认密码</span>
-            <input v-model="resetForm.confirmPassword" class="auth-input" type="password" placeholder="再次输入新密码" />
+            <span class="auth-field-label">{{ t('home.authConfirmPassword') }}</span>
+            <input v-model="resetForm.confirmPassword" class="auth-input" type="password" :placeholder="t('home.authConfirmPasswordPlaceholder')" />
           </label>
 
           <div class="auth-field">
-            <span class="auth-field-label">验证码</span>
+            <span class="auth-field-label">{{ t('home.authCaptcha') }}</span>
             <div class="auth-captcha-row">
               <div class="auth-captcha-box" @click="loadCaptcha">
-                <img v-if="captchaImage" class="auth-captcha-img" :src="captchaImage" alt="验证码" />
-                <span v-else class="auth-captcha-placeholder">点击加载</span>
+                <img v-if="captchaImage" class="auth-captcha-img" :src="captchaImage" :alt="t('home.authCaptcha')" />
+                <span v-else class="auth-captcha-placeholder">{{ t('home.authCaptchaClickLoad') }}</span>
               </div>
-              <input v-model="resetForm.captchaText" class="auth-input" type="text" maxlength="5" placeholder="输入验证码" />
+              <input v-model="resetForm.captchaText" class="auth-input" type="text" maxlength="5" :placeholder="t('home.authCaptchaPlaceholder')" />
             </div>
           </div>
 
           <button class="auth-btn" type="button" :disabled="authStore.loading || upgrading" @click="submitResetPassword">
-            {{ upgrading ? "正在验证..." : "确认升级密码" }}
+            {{ upgrading ? t('home.authVerifying') : t('home.authConfirmUpgrade') }}
           </button>
 
           <p class="auth-modal-foot">
             <button class="auth-switch-link" type="button" @click="resetMode = false">
-              返回登录
+              {{ t('home.authBackToLogin') }}
             </button>
           </p>
         </template>
@@ -482,39 +459,39 @@ function declineCookies() {
         <!-- 登录/注册表单 -->
         <template v-else>
           <div class="auth-tabs">
-            <button class="auth-tab" :class="{ 'auth-tab--active': authMode === 'login' }" type="button" @click="authMode = 'login'">登录</button>
-            <button class="auth-tab" :class="{ 'auth-tab--active': authMode === 'register' }" type="button" @click="authMode = 'register'">注册</button>
+            <button class="auth-tab" :class="{ 'auth-tab--active': authMode === 'login' }" type="button" @click="authMode = 'login'">{{ t('home.authTitle') }}</button>
+            <button class="auth-tab" :class="{ 'auth-tab--active': authMode === 'register' }" type="button" @click="authMode = 'register'">{{ t('home.authTitleRegister') }}</button>
           </div>
 
           <label class="auth-field">
-            <span class="auth-field-label">账号</span>
-            <input v-model="form.username" class="auth-input" type="text" placeholder="输入账号名称" />
+            <span class="auth-field-label">{{ t('home.authAccount') }}</span>
+            <input v-model="form.username" class="auth-input" type="text" :placeholder="t('home.authAccountPlaceholder')" />
           </label>
 
           <label class="auth-field">
-            <span class="auth-field-label">密码</span>
-            <input v-model="form.password" class="auth-input" type="password" placeholder="至少 6 位密码" />
+            <span class="auth-field-label">{{ t('home.authPassword') }}</span>
+            <input v-model="form.password" class="auth-input" type="password" :placeholder="t('home.authPasswordPlaceholder')" />
           </label>
 
           <div class="auth-field">
-            <span class="auth-field-label">验证码</span>
+            <span class="auth-field-label">{{ t('home.authCaptcha') }}</span>
             <div class="auth-captcha-row">
               <div class="auth-captcha-box" @click="loadCaptcha">
-                <img v-if="captchaImage" class="auth-captcha-img" :src="captchaImage" alt="验证码" />
-                <span v-else class="auth-captcha-placeholder">点击加载</span>
+                <img v-if="captchaImage" class="auth-captcha-img" :src="captchaImage" :alt="t('home.authCaptcha')" />
+                <span v-else class="auth-captcha-placeholder">{{ t('home.authCaptchaClickLoad') }}</span>
               </div>
-              <input v-model="form.captchaText" class="auth-input" type="text" maxlength="5" placeholder="输入验证码" />
+              <input v-model="form.captchaText" class="auth-input" type="text" maxlength="5" :placeholder="t('home.authCaptchaPlaceholder')" />
             </div>
           </div>
 
           <button class="auth-btn" type="button" :disabled="authStore.loading" @click="submitAuth">
-            {{ authMode === "login" ? "确认登录" : "确认注册" }}
+            {{ authMode === "login" ? t('home.authConfirmLogin') : t('home.authConfirmRegister') }}
           </button>
 
           <p class="auth-modal-foot">
-            {{ authMode === "login" ? "还没有账号？" : "已有账号？" }}
+            {{ authMode === "login" ? t('home.authNoAccount') : t('home.authHasAccount') }}
             <button class="auth-switch-link" type="button" @click="authMode = authMode === 'login' ? 'register' : 'login'">
-              {{ authMode === "login" ? "去注册" : "去登录" }}
+              {{ authMode === "login" ? t('home.authGoRegister') : t('home.authGoLogin') }}
             </button>
           </p>
         </template>
@@ -522,17 +499,17 @@ function declineCookies() {
     </ModalOverlay>
 
     <Transition name="cookie-slide">
-      <div v-if="showCookieConsent" class="cookie-consent" role="dialog" aria-label="Cookie 使用提示">
+      <div v-if="showCookieConsent" class="cookie-consent" role="dialog" :aria-label="t('home.cookieTitle')">
         <div class="cookie-consent-icon"><Icon icon="ph:cookie-duotone" /></div>
         <div class="cookie-consent-body">
-          <p class="cookie-consent-title">Cookie 使用说明</p>
-          <p class="cookie-consent-desc">本站使用 Cookie 保存您的登录状态，以便下次访问时自动保持登录。继续使用即表示您同意我们使用 Cookie。</p>
+          <p class="cookie-consent-title">{{ t('home.cookieTitle') }}</p>
+          <p class="cookie-consent-desc">{{ t('home.cookieDesc') }}</p>
           <div class="cookie-consent-actions">
             <button class="cookie-consent-btn cookie-consent-btn--primary" type="button" @click="acceptCookies">
-              <Icon icon="ph:check-circle-duotone" /> 同意
+              <Icon icon="ph:check-circle-duotone" /> {{ t('home.cookieAccept') }}
             </button>
             <button class="cookie-consent-btn cookie-consent-btn--ghost" type="button" @click="declineCookies">
-              拒绝
+              {{ t('home.cookieDecline') }}
             </button>
           </div>
         </div>

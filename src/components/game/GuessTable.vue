@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 
 import LoreBadge from "@/components/shared/LoreBadge.vue";
 import type { CellStatus, CompareStatus, GuessHistoryRow, QuizType, ResonatorCompare, SkeletonCompare } from "@/types/game";
@@ -7,6 +8,7 @@ import { formatGuessValue, getCharacterAvatar, getColumns, getSkeletonAvatar, ge
 import { resolveBadgeCategory } from "@/utils/presentation";
 import { useSettings } from "@/composables/useSettings";
 
+const { t } = useI18n();
 const { settings } = useSettings();
 
 const props = defineProps<{
@@ -78,9 +80,9 @@ function formatCellValue(row: GuessHistoryRow, key: string) {
       <thead>
         <tr>
           <th class="guess-table-head">#</th>
-          <th class="guess-table-head">头像</th>
+          <th class="guess-table-head">{{ t("column.avatar") }}</th>
           <th v-for="column in columns" :key="column.key" class="guess-table-head">
-            {{ column.label }}
+            {{ t(column.label) }}
           </th>
         </tr>
       </thead>

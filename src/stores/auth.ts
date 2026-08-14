@@ -6,6 +6,7 @@ import type { AuthResponse } from "@/types";
 import * as api from "@/api";
 import { markAuthenticated, clearAuthenticated } from "@/api/authSession";
 import { errMsg } from "@/api/client";
+import { i18n } from "@/i18n";
 
 export const useAuthStore = defineStore("auth", () => {
   // 登录态持久化至 Cookie（替代 localStorage），30 天有效期，实际登录态由后端 token 校验/轮换控制
@@ -120,7 +121,7 @@ export const useAuthStore = defineStore("auth", () => {
       // 或瞬态故障（D1 不可用、网络抖动）导致刷新页面就掉登录。
       // 保留 cookie/ref 登录态，后续 API 请求通过拦截器自动处理 token 过期（refresh + 重放）。
       // 若 token 确实无效，用户下次主动操作时由 socket.ts 的 session-cleared 事件触发 clearSession。
-      error.value = errMsg(reason) || "网络异常，稍后重试";
+      error.value = errMsg(reason) || i18n.global.t('errors.default');
     }
   }
 
@@ -135,7 +136,7 @@ export const useAuthStore = defineStore("auth", () => {
       return data;
     } catch (reason) {
       const msg = errMsg(reason);
-      error.value = msg || "登录失败";
+      error.value = msg || i18n.global.t('auth.loginFailed');
       throw reason;
     } finally {
       loading.value = false;
@@ -153,7 +154,7 @@ export const useAuthStore = defineStore("auth", () => {
       return data;
     } catch (reason) {
       const msg = errMsg(reason);
-      error.value = msg || "注册失败";
+      error.value = msg || i18n.global.t('auth.registerFailed');
       throw reason;
     } finally {
       loading.value = false;
@@ -171,7 +172,7 @@ export const useAuthStore = defineStore("auth", () => {
       return data;
     } catch (reason) {
       const msg = errMsg(reason);
-      error.value = msg || "密码升级失败";
+      error.value = msg || i18n.global.t('auth.upgradeFailed');
       throw reason;
     } finally {
       loading.value = false;
@@ -180,7 +181,7 @@ export const useAuthStore = defineStore("auth", () => {
 
   async function updatePlayerId(newId: string) {
     if (!isAuthenticated.value) {
-      throw new Error("当前未登录");
+      throw new Error(i18n.global.t('auth.notAuthenticated'));
     }
     loading.value = true;
     error.value = "";
@@ -195,7 +196,7 @@ export const useAuthStore = defineStore("auth", () => {
       return data;
     } catch (reason) {
       const msg = errMsg(reason);
-      error.value = msg || "修改 ID 失败";
+      error.value = msg || i18n.global.t('auth.updateIdFailed');
       throw reason;
     } finally {
       loading.value = false;

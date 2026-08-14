@@ -28,7 +28,6 @@ import apiApp from './functions/api/[[route]]';
 // ────────────────────────────────────────────────────────────────────
 type Bindings = {
   DB: D1Database;
-  KV: KVNamespace;
   ROOM: DurableObjectNamespace<RoomObject>;
   MATCHMAKER: DurableObjectNamespace<MatchmakerObject>;
   SECRET_KEY: string;
@@ -42,7 +41,7 @@ type Bindings = {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Token, Authorization, X-Player-Id, X-Player-Token',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Token, Authorization, X-Player-Id, X-Player-Token, X-Auth-Expected, X-Request-Id',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
@@ -64,7 +63,7 @@ export default {
         return apiApp.fetch(request, env, ctx);
       }
 
-      // /ws/* → Durable Object 路由 (WebSocket 升级 或 HTTP 查询)
+      // /ws/* → WebSocket 升级 / Durable Object 状态查询
       if (pathname.startsWith('/ws')) {
         return handleWs(request, env, url);
       }

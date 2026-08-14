@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - master
   workflow_dispatch:
 
 permissions:
@@ -16,10 +15,9 @@ concurrency:
   cancel-in-progress: false
 
 # 需要在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置以下 Secrets：
-#   CLOUDFLARE_API_TOKEN  — Cloudflare API Token（需具备 Workers/Pages/D1/KV 编辑权限）
+#   CLOUDFLARE_API_TOKEN  — Cloudflare API Token（需具备 Workers/Pages/D1 编辑权限）
 #   CLOUDFLARE_ACCOUNT_ID — Cloudflare Account ID
 #   D1_DATABASE_ID        — D1 数据库 ID
-#   KV_NAMESPACE_ID       — KV 命名空间 ID
 
 jobs:
   # ============================================================
@@ -77,13 +75,10 @@ jobs:
         run: |
           sed \
             -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
-            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
-            -e "s|REPLACE_WITH_YOUR_KV_PREVIEW_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
             wrangler.jsonc.example > wrangler.jsonc
 
           sed \
             -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
-            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
             cf-server/wrangler.jsonc.example > cf-server/wrangler.jsonc
 
       - name: Build frontend + Pages Worker
@@ -140,8 +135,6 @@ jobs:
         run: |
           sed \
             -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
-            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
-            -e "s|REPLACE_WITH_YOUR_KV_PREVIEW_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
             wrangler.jsonc.example > wrangler.jsonc
 
       - name: Apply D1 migrations (remote)
@@ -176,11 +169,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate cf-server/wrangler.jsonc
-        run: |
-          sed \
-            -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
-            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
-            cf-server/wrangler.jsonc.example > cf-server/wrangler.jsonc
+        run: sed -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" cf-server/wrangler.jsonc.example > cf-server/wrangler.jsonc
 
       - name: Deploy Durable Objects Worker
         uses: cloudflare/wrangler-action@v3
@@ -223,8 +212,6 @@ jobs:
         run: |
           sed \
             -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ secrets.D1_DATABASE_ID }}|g" \
-            -e "s|REPLACE_WITH_YOUR_KV_NAMESPACE_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
-            -e "s|REPLACE_WITH_YOUR_KV_PREVIEW_ID|${{ secrets.KV_NAMESPACE_ID }}|g" \
             wrangler.jsonc.example > wrangler.jsonc
 
       - name: Deploy to Cloudflare Pages (production)

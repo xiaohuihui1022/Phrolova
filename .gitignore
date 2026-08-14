@@ -14,6 +14,7 @@ coverage.xml
 # IDE-specific settings (optional)
 idea/
 vscode/
+.trae/
 
 # Miscellaneous
 *.mo

@@ -12,6 +12,7 @@ import {
   closeGameSocketAll,
   tryRecoverOnWsError,
 } from "@/api/socket";
+import { i18n } from "@/i18n";
 
 type ConnectionState = "idle" | "connecting" | "connected" | "error";
 
@@ -91,7 +92,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
         case S2C.AUTHED:
           connectionState.value = "connected";
           error.value = "";
-          infoMessage.value = (payload?.message as string) || "连接已建立";
+          infoMessage.value = (payload?.message as string) || i18n.global.t('multi.connected');
           break;
 
         case S2C.ERROR: {
@@ -103,7 +104,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
               break;
             }
           }
-          const message = (payload?.message as string) || "多人模式发生错误";
+          const message = (payload?.message as string) || i18n.global.t('multi.errorOccurred');
           error.value = message;
           matched.value = false;
           creatingRoom.value = false;
@@ -117,12 +118,12 @@ export const useMultiGameStore = defineStore("multiGame", () => {
         }
 
         case S2C.MATCHING:
-          inQueue.value = (payload?.inQueue as boolean) ?? /匹配队列/.test((payload?.message as string) || "");
-          infoMessage.value = (payload?.message as string) || "匹配状态已更新";
+          inQueue.value = (payload?.inQueue as boolean) ?? inQueue.value;
+          infoMessage.value = (payload?.message as string) || i18n.global.t('multi.matchingUpdated');
           break;
 
         case S2C.ROOM_CREATED: {
-          infoMessage.value = `房间 ${payload.roomCode} 已创建`;
+          infoMessage.value = i18n.global.t('multi.roomCreated', { code: payload.roomCode });
           inQueue.value = false;
           if (!_isTransitioning && !_inRoom) {
             const roomCode = (payload.roomCode as string) || "";
@@ -131,7 +132,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
               try {
                 await transitionToRoom(roomCode, C2S.CREATE_ROOM, { roomCode, ...config });
               } catch (e) {
-                error.value = e instanceof Error ? e.message : "连接房间失败";
+                error.value = e instanceof Error ? e.message : i18n.global.t('multi.connectRoomFailed');
                 if (_roomStateReject) {
                   _roomStateReject(e instanceof Error ? e : new Error(String(e)));
                   _roomStateReject = null;
@@ -144,16 +145,16 @@ export const useMultiGameStore = defineStore("multiGame", () => {
         }
 
         case S2C.ROOM_JOINED:
-          infoMessage.value = `已加入房间 ${payload.roomCode}`;
+          infoMessage.value = i18n.global.t('multi.roomJoined', { code: payload.roomCode });
           inQueue.value = false;
           break;
 
         case S2C.COUNTDOWN_STARTED: {
           if (_inRoom || _isTransitioning) {
-            infoMessage.value = `倒计时 ${payload.countdownLeft ?? 3} 秒后开局`;
+            infoMessage.value = i18n.global.t('multi.countdownInRoom', { sec: payload.countdownLeft ?? 3 });
             break;
           }
-          infoMessage.value = `匹配成功，${payload.countdownLeft ?? 2} 秒后开局`;
+          infoMessage.value = i18n.global.t('multi.countdownMatched', { sec: payload.countdownLeft ?? 2 });
           inQueue.value = false;
           _pendingQueue = null;
           matched.value = true;
@@ -169,7 +170,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
               });
             } catch (e) {
               matched.value = false;
-              error.value = e instanceof Error ? e.message : "连接房间失败";
+              error.value = e instanceof Error ? e.message : i18n.global.t('multi.connectRoomFailed');
               if (_roomStateReject) {
                 _roomStateReject(e instanceof Error ? e : new Error(String(e)));
                 _roomStateReject = null;
@@ -219,15 +220,15 @@ export const useMultiGameStore = defineStore("multiGame", () => {
           break;
 
         case S2C.ROUND_STARTED:
-          infoMessage.value = `第 ${payload.round} 局开始`;
+          infoMessage.value = i18n.global.t('multi.roundStarted', { round: payload.round });
           break;
 
         case S2C.GUESS_RESULT:
-          infoMessage.value = `已提交猜测，还剩 ${payload.attemptsLeft} 次机会`;
+          infoMessage.value = i18n.global.t('multi.guessSubmitted', { left: payload.attemptsLeft });
           break;
 
         case S2C.ROUND_FINISHED:
-          infoMessage.value = "本局已结算";
+          infoMessage.value = i18n.global.t('multi.roundFinished');
           {
             const rs = roomState.value;
             if (rs && rs.bestOf > 1 && (payload.overallWinner === null || payload.overallWinner === undefined)) {
@@ -295,10 +296,10 @@ export const useMultiGameStore = defineStore("multiGame", () => {
 
           infoMessage.value =
             myDelta > 0
-              ? `整场获胜，积分 +${myDelta}`
+              ? i18n.global.t('multi.matchWon', { delta: myDelta })
               : myDelta < 0
-                ? `整场结束，积分 ${myDelta}`
-                : `整场结束`;
+                ? i18n.global.t('multi.matchLost', { delta: myDelta })
+                : i18n.global.t('multi.matchDraw');
           stopHeartbeat();
           clearLastRoomCode();
           break;
@@ -316,13 +317,13 @@ export const useMultiGameStore = defineStore("multiGame", () => {
             roomState.value = { ...s };
           }
           matchFinishedTrigger.value++;
-          infoMessage.value = (payload.message as string) || "对手已退出";
+          infoMessage.value = (payload.message as string) || i18n.global.t('multi.opponentForfeit');
           stopHeartbeat();
           clearLastRoomCode();
           break;
 
         case S2C.ROOM_EXPIRED:
-          infoMessage.value = (payload?.message as string) || "房间因长时间无活动已自动关闭";
+          infoMessage.value = (payload?.message as string) || i18n.global.t('multi.roomExpired');
           roomState.value = null;
           inQueue.value = false;
           stopHeartbeat();
@@ -353,7 +354,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
       if (connectionState.value === "connected" || connectionState.value === "connecting") {
         connectionState.value = "idle";
         // 仅在 socket 层 toast 没覆盖到时再补充 banner（避免重复报给用户）
-        if (!error.value) error.value = "连接已断开";
+        if (!error.value) error.value = i18n.global.t('multi.disconnected');
         if (!_pendingQueue) {
           inQueue.value = false;
         }
@@ -386,7 +387,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
   async function ensureConnected(path: string = ""): Promise<GameWebSocket> {
     const authStore = useAuthStore();
     if (!authStore.isAuthenticated) {
-      throw new Error("请先登录账号，再进入多人模式");
+      throw new Error(i18n.global.t('multi.loginRequired'));
     }
 
     connectionState.value = "connecting";
@@ -404,7 +405,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
       return ws;
     } catch (e) {
       connectionState.value = "error";
-      error.value = e instanceof Error ? e.message : "连接失败";
+      error.value = e instanceof Error ? e.message : i18n.global.t('multi.connectFailed');
       throw e;
     }
   }
@@ -420,7 +421,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
       }
     } catch (e) {
       _isTransitioning = false;
-      const msg = e instanceof Error ? e.message : "连接房间失败";
+      const msg = e instanceof Error ? e.message : i18n.global.t('multi.connectRoomFailed');
       error.value = msg;
       throw e;
     }
@@ -449,7 +450,7 @@ export const useMultiGameStore = defineStore("multiGame", () => {
 
       setTimeout(() => {
         if (_roomStateReject) {
-          _roomStateReject(new Error("连接超时，请重试"));
+          _roomStateReject(new Error(i18n.global.t('multi.connectTimeout')));
           _roomStateReject = null;
           _roomStateResolve = null;
           _waitingForRoomState = false;
@@ -535,10 +536,10 @@ export const useMultiGameStore = defineStore("multiGame", () => {
 
   async function submitGuess(guessName: string): Promise<void> {
     if (!roomState.value) {
-      throw new Error("当前不在房间中");
+      throw new Error(i18n.global.t('multi.notInRoom'));
     }
     if (!gameWs?.connected) {
-      throw new Error("WebSocket 未连接");
+      throw new Error(i18n.global.t('multi.wsNotConnected'));
     }
     gameWs.send(C2S.SUBMIT_GUESS, {
       roomCode: roomState.value.roomCode,

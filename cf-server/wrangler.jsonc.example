@@ -5,8 +5,14 @@
   "compatibility_flags": ["nodejs_compat"],
   "migrations": [
     {
+      "tag": "v1-initial-classes"
+    },
+    {
       "tag": "v2-sqlite",
       "new_sqlite_classes": ["RoomObject", "MatchmakerObject"]
+    },
+    {
+      "tag": "v3-online-counter"
     }
   ],
   "d1_databases": [
@@ -18,17 +24,16 @@
       "migrations_table": "drizzle_migrations"
     }
   ],
-  "kv_namespaces": [
-    {
-      "binding": "KV",
-      "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID",
-      "preview_id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
-    }
-  ],
   "durable_objects": {
     "bindings": [
-      { "name": "ROOM", "class_name": "RoomObject" },
-      { "name": "MATCHMAKER", "class_name": "MatchmakerObject" }
+      {
+        "name": "ROOM",
+        "class_name": "RoomObject"
+      },
+      {
+        "name": "MATCHMAKER",
+        "class_name": "MatchmakerObject"
+      }
     ]
   },
   "services": [],

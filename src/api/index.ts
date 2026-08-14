@@ -23,9 +23,6 @@ export {
 
 export { fetchLeaderboard } from "./leaderboard";
 
-export { fetchOnlineStats, sendHeartbeat } from "./stats";
-export type { OnlineStatsResponse } from "./stats";
-
 export {
   fetchAcknowledgements,
   adminFetchAcknowledgements,

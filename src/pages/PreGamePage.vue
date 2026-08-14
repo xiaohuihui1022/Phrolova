@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import gsap from "gsap";
 
 import GlassHeader from "@/components/shared/GlassHeader.vue";
@@ -10,6 +11,7 @@ import { useSingleGameStore } from "@/stores/singleGame";
 import type { Difficulty, QuizType } from "@/types";
 
 const { theme } = useTheme();
+const { t } = useI18n();
 const dictionaryStore = useDictionaryStore();
 const singleGameStore = useSingleGameStore();
 const router = useRouter();
@@ -19,25 +21,21 @@ const gameModes = [
     key: "resonator" as QuizType,
     icon: "ph:user-circle-duotone",
     kicker: "RESONATOR",
-    title: "共鸣者模式",
-    desc: "比较属性、星级、武器、出生地与实装版本。",
+    titleKey: "single.resonatorMode",
+    descKey: "single.resonatorDesc",
     guesses: 4,
-    stats: [
-      { icon: "ph:target-duotone", text: "4 次猜测" },
-      { icon: "ph:columns-duotone", text: "5 个字段" },
-    ],
+    fields: 5 as number | null,
+    fieldsRange: null as string | null,
   },
   {
     key: "skeleton" as QuizType,
     icon: "ph:ghost-duotone",
     kicker: "SKELETON",
-    title: "声骸模式",
-    desc: "反馈属性、COST、技能、套装与掉落位置。",
+    titleKey: "single.skeletonMode",
+    descKey: "single.skeletonDesc",
     guesses: 8,
-    stats: [
-      { icon: "ph:target-duotone", text: "8 次猜测" },
-      { icon: "ph:columns-duotone", text: "3-5 个字段" },
-    ],
+    fields: null as number | null,
+    fieldsRange: "3-5" as string | null,
   },
 ];
 
@@ -82,7 +80,7 @@ onBeforeUnmount(() => {
     <div class="pg-shell">
       <GlassHeader
         class="pg-glass-header"
-        kicker="单人 · 模式选择"
+        :kicker="t('single.modeSelectKicker')"
         title="Select Mode"
         back-to="/"
       />
@@ -104,12 +102,20 @@ onBeforeUnmount(() => {
           </div>
           <div class="pg-card-body">
             <span class="pg-card-kicker">{{ mode.kicker }}</span>
-            <strong class="pg-card-title">{{ mode.title }}</strong>
-            <p class="pg-card-desc">每题 <em>{{ mode.guesses }}</em> 次猜测机会，{{ mode.desc }}</p>
+            <strong class="pg-card-title">{{ t(mode.titleKey) }}</strong>
+            <p class="pg-card-desc">{{ t("single.modeCardDesc", { n: mode.guesses, desc: t(mode.descKey) }) }}</p>
             <div class="pg-card-stats">
-              <div v-for="stat in mode.stats" :key="stat.text" class="pg-card-stat">
-                <Icon :icon="stat.icon" aria-hidden="true" />
-                <span>{{ stat.text }}</span>
+              <div class="pg-card-stat">
+                <Icon icon="ph:target-duotone" aria-hidden="true" />
+                <span>{{ t("single.guessesN", { n: mode.guesses }) }}</span>
+              </div>
+              <div class="pg-card-stat">
+                <Icon icon="ph:columns-duotone" aria-hidden="true" />
+                <span>{{
+                  mode.fieldsRange
+                    ? t("single.fieldsRange", { range: mode.fieldsRange })
+                    : t("single.fieldsN", { n: mode.fields ?? 0 })
+                }}</span>
               </div>
             </div>
           </div>
@@ -129,14 +135,14 @@ onBeforeUnmount(() => {
                 :class="{ 'pg-diff-tab--active': config.difficulty === 'easy' }"
                 @click="config.difficulty = 'easy'"
               >
-                <Icon icon="ph:leaf-duotone" aria-hidden="true" /> 简单
+                <Icon icon="ph:leaf-duotone" aria-hidden="true" /> {{ t("single.easy") }}
               </button>
               <button
                 class="pg-diff-tab"
                 :class="{ 'pg-diff-tab--active': config.difficulty === 'hard' }"
                 @click="config.difficulty = 'hard'"
               >
-                <Icon icon="ph:flame-duotone" aria-hidden="true" /> 困难
+                <Icon icon="ph:flame-duotone" aria-hidden="true" /> {{ t("single.hard") }}
               </button>
             </div>
           </div>
@@ -144,7 +150,7 @@ onBeforeUnmount(() => {
 
         <button class="btn-start" :disabled="loading" @click="startGame">
           <Icon icon="ph:play-circle-duotone" aria-hidden="true" />
-          {{ loading ? "加载中..." : "开始挑战" }}
+          {{ loading ? t("common.loading") : t("single.startChallenge") }}
         </button>
       </div>
     </div>

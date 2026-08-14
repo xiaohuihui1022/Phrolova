@@ -20,12 +20,14 @@ const meta = computed(() => getBadgeMeta(props.label, props.category));
 const badgeStyle = computed(() => ({
   "--badge-accent": meta.value.accent,
 }));
+
+const iconAlt = computed(() => `${props.label} icon`);
 </script>
 
 <template>
   <span class="lore-badge" :class="{ 'lore-badge-compact': compact }" :style="badgeStyle">
     <span class="lore-badge-mark">
-      <img v-if="meta.iconUrl" :src="meta.iconUrl" :alt="`${label}图标`" loading="lazy" />
+      <img v-if="meta.iconUrl" :src="meta.iconUrl" :alt="iconAlt" loading="lazy" />
       <span v-else>{{ meta.mark }}</span>
     </span>
     <span class="lore-badge-text">{{ label }}</span>

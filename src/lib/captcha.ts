@@ -1,5 +1,7 @@
 // SVG 验证码实现 — 替代 Python PIL 版本
 // 输出 data:image/svg+xml;utf8,... 格式，无需图像处理库
+import { eq, lt } from 'drizzle-orm';
+import { captchas, type Database } from './db';
 import { timingSafeEqualStrings } from './crypto';
 
 export type CaptchaData = {
@@ -91,26 +93,24 @@ function randomIdHex(len: number): string {
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// KV 存储封装
-const CAPTCHA_PREFIX = 'captcha:';
-
-export async function storeCaptcha(kv: KVNamespace, captcha: CaptchaData, ttlSeconds: number) {
-  await kv.put(CAPTCHA_PREFIX + captcha.captcha_id, JSON.stringify({ text: captcha.text, expire: captcha.expire }), {
-    expirationTtl: ttlSeconds + 60,
+// D1 存储封装（替代 KV，一次性使用）
+export async function storeCaptcha(db: Database, captcha: CaptchaData) {
+  const now = Math.floor(Date.now() / 1000);
+  // 清理过期记录，避免表膨胀（D1 无 TTL）
+  await db.delete(captchas).where(lt(captchas.expire, now));
+  await db.insert(captchas).values({
+    captchaId: captcha.captcha_id,
+    text: captcha.text,
+    expire: Math.floor(captcha.expire),
   });
 }
 
-export async function verifyCaptcha(kv: KVNamespace, captchaId: string, userInput: string): Promise<boolean> {
+export async function verifyCaptcha(db: Database, captchaId: string, userInput: string): Promise<boolean> {
   if (!captchaId || !userInput) return false;
-  const raw = await kv.get(CAPTCHA_PREFIX + captchaId);
-  if (!raw) return false;
-  await kv.delete(CAPTCHA_PREFIX + captchaId); // 一次性使用
-  let data: { text: string; expire: number };
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    return false;
-  }
-  if (Date.now() / 1000 > data.expire) return false;
-  return timingSafeEqualStrings(data.text.toUpperCase(), userInput.trim().toUpperCase());
+  // DELETE RETURNING 原子完成"读取+删除"，天然防重放
+  const rows = await db.delete(captchas).where(eq(captchas.captchaId, captchaId)).returning();
+  if (rows.length === 0) return false;
+  const row = rows[0];
+  if (Date.now() / 1000 > row.expire) return false;
+  return timingSafeEqualStrings(row.text.toUpperCase(), userInput.trim().toUpperCase());
 }

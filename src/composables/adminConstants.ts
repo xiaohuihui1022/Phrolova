@@ -1,20 +1,23 @@
+import { i18n } from "@/i18n";
+
 export type AdminRecordKind = "characters" | "echoes";
 
-export const FIELD_LABELS: Record<string, string> = {
-  attribute: "属性",
-  star_rating: "星级",
-  weapon: "武器",
-  birthplace: "出身地",
-  version: "版本",
-  skill_attribute: "技能属性",
-  cost: "COST",
-  is_aberration: "异相",
-  set_name: "套装",
-  drop_location: "掉落位置",
+const FIELD_LABEL_KEYS: Record<string, string> = {
+  attribute: "admin.fieldAttribute",
+  star_rating: "admin.fieldStarRating",
+  weapon: "admin.fieldWeapon",
+  birthplace: "admin.fieldBirthplace",
+  version: "admin.fieldVersion",
+  skill_attribute: "admin.fieldSkillAttribute",
+  cost: "admin.fieldCost",
+  is_aberration: "admin.fieldIsAberration",
+  set_name: "admin.fieldSetName",
+  drop_location: "admin.fieldDropLocation",
 };
 
 export function fieldLabel(field: string): string {
-  return FIELD_LABELS[field] ?? field;
+  const key = FIELD_LABEL_KEYS[field];
+  return key ? i18n.global.t(key) : field;
 }
 
 export const TABLE_FIELDS: Record<AdminRecordKind, string[]> = {
@@ -28,7 +31,7 @@ export const DIFF_FIELDS: Record<AdminRecordKind, string[]> = {
 };
 
 export function tableTitle(kind: AdminRecordKind): string {
-  return kind === "characters" ? "角色" : "声骸";
+  return i18n.global.t(kind === "characters" ? "admin.characters" : "admin.echoes");
 }
 
 export const ADMIN_PAGE_SIZE = 30;

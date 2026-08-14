@@ -1,5 +1,5 @@
 // 玩家数据库操作函数 — 迁移自 Python players.py
-import { eq } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import type { Database, Player, NewPlayerTarget, PlayerTarget } from './db';
 import { players, playerTargets } from './db/schema';
 import { generateToken, checkPasswordHash, generatePasswordHash, timingSafeEqualStrings } from './crypto';
@@ -168,4 +168,29 @@ export async function incrementPlayerTargetAttempts(db: Database, playerId: stri
   const attempts = current.attempts + 1;
   await db.update(playerTargets).set({ attempts }).where(eq(playerTargets.playerId, playerId));
   return attempts;
+}
+
+/**
+ * 标记玩家目标为"即将过期"：玩家关闭网页时调用，10s 后到期。
+ * 若玩家在 10s 内刷新页面并重新抽题，upsertPlayerTarget 会先删除旧行再插入新行，
+ * 旧行的 expires_at 随之消失，因此不会误删新会话。
+ */
+export async function markPlayerTargetExpired(db: Database, playerId: string, delaySeconds = 10): Promise<void> {
+  await db.update(playerTargets)
+    .set({ expiresAt: sql`datetime('now', '+' || ${delaySeconds} || ' seconds')` })
+    .where(eq(playerTargets.playerId, playerId));
+}
+
+/**
+ * 延迟清理：删除所有 expires_at 已到期的目标会话。
+ * 在 /api/draw、/api/guess、/api/player/leave 中惰性调用，
+ * 确保玩家关闭网页 10s 后的缓存被及时清除。
+ */
+export async function cleanupExpiredPlayerTargets(db: Database): Promise<void> {
+  await db.delete(playerTargets).where(
+    and(
+      sql`${playerTargets.expiresAt} IS NOT NULL`,
+      sql`${playerTargets.expiresAt} <= datetime('now')`,
+    ),
+  );
 }

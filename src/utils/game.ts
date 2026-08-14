@@ -13,21 +13,21 @@ import type {
 } from "@/types/game";
 
 const resonatorColumns = [
-  { key: "name", label: "姓名" },
-  { key: "attribute", label: "属性" },
-  { key: "star_rating", label: "星级" },
-  { key: "weapon", label: "武器" },
-  { key: "birthplace", label: "出生地" },
-  { key: "version", label: "实装版本" },
+  { key: "name", label: "column.name" },
+  { key: "attribute", label: "column.attribute" },
+  { key: "star_rating", label: "column.starRating" },
+  { key: "weapon", label: "column.weapon" },
+  { key: "birthplace", label: "column.birthplace" },
+  { key: "version", label: "column.version" },
 ] as const;
 
 const skeletonColumns = [
-  { key: "name", label: "名称" },
-  { key: "skill_attribute", label: "技能属性" },
-  { key: "cost", label: "COST" },
-  { key: "is_aberration", label: "异相" },
-  { key: "set_name", label: "所属套装" },
-  { key: "drop_location", label: "掉落位置" },
+  { key: "name", label: "column.skeletonName" },
+  { key: "skill_attribute", label: "column.skillAttribute" },
+  { key: "cost", label: "column.cost" },
+  { key: "is_aberration", label: "column.isAberration" },
+  { key: "set_name", label: "column.setName" },
+  { key: "drop_location", label: "column.dropLocation" },
 ] as const;
 
 export function getColumns(quizType: QuizType) {

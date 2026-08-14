@@ -1,0 +1,241 @@
+name: Cleanup OnlineCounter DO Namespace (One-time)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pages_project:
+        description: 'Cloudflare Pages project name (default: phrolova)'
+        required: false
+        default: 'phrolova'
+      d1_database_id:
+        description: 'D1 database ID (from GitHub secret D1_DATABASE_ID by default)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup-online-counter:
+    name: Fully Remove OnlineCounterObject (Step1 deploy + Cleanup + Step2 deploy)
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve DB id
+        id: dbid
+        run: |
+          DB_ID="${{ inputs.d1_database_id }}"
+          if [ -z "$DB_ID" ]; then
+            DB_ID="${{ secrets.D1_DATABASE_ID }}"
+          fi
+          if [ -z "$DB_ID" ]; then
+            echo "::error::D1_DATABASE_ID not provided (input or secret)"
+            exit 1
+          fi
+          echo "db_id=$DB_ID" >> "$GITHUB_OUTPUT"
+
+      # ────────────────────────────────────────────────────────────────
+      # STEP 1: Deploy phrolova-multiplayer WITH OnlineCounterObject stub
+      # This satisfies Cloudflare DO class-export consistency check
+      # for namespace-level cleanup operations that come next.
+      # ────────────────────────────────────────────────────────────────
+      - name: "Step 1a: Patch index.ts - add stub OnlineCounterObject export"
+        run: |
+          cat >> cf-server/index.ts <<'EOF'
+
+          // CI Cleanup stub: re-export OnlineCounterObject to satisfy
+          // DO class-export consistency before namespace cleanup.
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          export class OnlineCounterObject {
+            constructor(_state: DurableObjectState, _env: Env) {}
+            fetch(_req: Request) { return new Response("stub", { status: 410 }); }
+          }
+          EOF
+
+      - name: "Step 1b: Generate cf-server/wrangler.jsonc (clean - no deleted_classes)"
+        run: sed -e "s|REPLACE_WITH_YOUR_D1_DATABASE_ID|${{ steps.dbid.outputs.db_id }}|g" cf-server/wrangler.jsonc.example > cf-server/wrangler.jsonc
+
+      - name: "Step 1c: Deploy Worker WITH stub OnlineCounterObject"
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cf-server
+          command: deploy
+
+      # ────────────────────────────────────────────────────────────────
+      # STEP 2: Clean up Pages preview deployments that still reference
+      #         ONLINE_COUNTER, then DELETE the DO namespace.
+      # ────────────────────────────────────────────────────────────────
+      - name: "Step 2a: Delete Pages preview deployments referencing ONLINE_COUNTER"
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PAGES_PROJECT: ${{ inputs.pages_project }}
+        run: |
+          set -uo pipefail
+          AUTH_HDR="Authorization: Bearer $CF_API_TOKEN"
+          WORKERS_API="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers"
+
+          echo "::group::List all Workers"
+          ALL_WORKERS=$(curl -sS "$WORKERS_API/services" -H "$AUTH_HDR" | jq -r '.result[].name')
+          echo "$ALL_WORKERS"
+          echo "::endgroup::"
+
+          BINDING_WORKERS=""
+          while IFS= read -r WNAME; do
+            [ -z "$WNAME" ] && continue
+            BINDINGS=$(curl -sS "$WORKERS_API/scripts/$WNAME" -H "$AUTH_HDR")
+            if echo "$BINDINGS" | jq -e '.result.bindings[]? | select(.name == "ONLINE_COUNTER")' > /dev/null 2>&1; then
+              echo "⚠️  $WNAME has ONLINE_COUNTER binding"
+              BINDING_WORKERS="${BINDING_WORKERS}${WNAME}"$'\n'
+            fi
+          done <<< "$ALL_WORKERS"
+
+          if [ -z "$BINDING_WORKERS" ]; then
+            echo "✅ No Workers have ONLINE_COUNTER binding."
+          else
+            while IFS= read -r WNAME; do
+              [ -z "$WNAME" ] && continue
+              if [[ "$WNAME" == pages-worker-*-preview ]]; then
+                DEPLOY_ID=$(echo "$WNAME" | sed -n 's/^pages-worker-\([0-9]*\)-preview$/\1/p')
+                if [ -n "$DEPLOY_ID" ]; then
+                  echo "::group::Delete Pages preview deploy $DEPLOY_ID (Worker: $WNAME)"
+                  DEL_RESP=$(curl -sS -X DELETE "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/pages/projects/$PAGES_PROJECT/deployments/$DEPLOY_ID" -H "$AUTH_HDR")
+                  DEL_OK=$(echo "$DEL_RESP" | jq -r '.success // false')
+                  if [ "$DEL_OK" = "true" ]; then
+                    echo "✅ Deleted Pages preview deployment $DEPLOY_ID → Worker $WNAME removed"
+                  else
+                    DEL_ERR=$(echo "$DEL_RESP" | jq -r '.errors[0].message // "unknown"')
+                    echo "::warning::Deployment delete failed ($DEPLOY_ID): $DEL_ERR"
+                    echo "   Backup: delete Worker directly via API"
+                    DW_RESP=$(curl -sS -X DELETE "$WORKERS_API/scripts/$WNAME" -H "$AUTH_HDR")
+                    DW_OK=$(echo "$DW_RESP" | jq -r '.success // false')
+                    if [ "$DW_OK" = "true" ]; then echo "✅ Direct Worker delete succeeded"; else echo "::error::Direct Worker delete also failed"; fi
+                  fi
+                  echo "::endgroup::"
+                fi
+              elif [[ "$WNAME" != "phrolova-multiplayer" ]]; then
+                # Non-Pages worker (except our main script) → delete directly
+                echo "::group::Delete non-Pages Worker $WNAME"
+                DW_RESP=$(curl -sS -X DELETE "$WORKERS_API/scripts/$WNAME" -H "$AUTH_HDR")
+                DW_OK=$(echo "$DW_RESP" | jq -r '.success // false')
+                if [ "$DW_OK" = "true" ]; then
+                  echo "✅ Deleted Worker $WNAME"
+                else
+                  DEL_ERR=$(echo "$DW_RESP" | jq -r '.errors[0].message // "unknown"')
+                  echo "::warning::Worker delete failed: $DEL_ERR"
+                fi
+                echo "::endgroup::"
+              fi
+            done <<< "$BINDING_WORKERS"
+          fi
+
+          # Final re-check
+          echo "::group::Final ONLINE_COUNTER binding check"
+          REMAINING=""
+          while IFS= read -r WNAME; do
+            [ -z "$WNAME" ] && continue
+            BINDINGS=$(curl -sS "$WORKERS_API/scripts/$WNAME" -H "$AUTH_HDR")
+            if echo "$BINDINGS" | jq -e '.result.bindings[]? | select(.name == "ONLINE_COUNTER")' > /dev/null 2>&1; then
+              REMAINING="${REMAINING}${WNAME} "
+            fi
+          done <<< "$ALL_WORKERS"
+          if [ -n "$REMAINING" ]; then
+            echo "::warning::Workers still have ONLINE_COUNTER binding: $REMAINING"
+            echo "   Continuing to delete DO namespace - if the Worker is different from the one currently registered, delete should still work."
+          else
+            echo "✅ Verified: no surviving external Workers with ONLINE_COUNTER."
+          fi
+          echo "::endgroup::"
+
+      - name: "Step 2b: DELETE ONLINE_COUNTER Durable Object Namespace"
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -uo pipefail
+          AUTH_HDR="Authorization: Bearer $CF_API_TOKEN"
+          BASE="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers/durable_objects/namespaces"
+
+          echo "::group::List Durable Object namespaces"
+          LIST=$(curl -sS "$BASE" -H "$AUTH_HDR")
+          echo "$LIST" | jq . || echo "$LIST"
+          echo "::endgroup::"
+
+          NS_ID=$(echo "$LIST" | jq -r '.result[] | select(.name=="ONLINE_COUNTER" or .class=="OnlineCounterObject") | .id' | head -n1)
+
+          if [ -z "$NS_ID" ] || [ "$NS_ID" = "null" ]; then
+            echo "✅ ONLINE_COUNTER namespace already gone (nothing to delete)."
+          else
+            echo "Found ONLINE_COUNTER namespace id: $NS_ID"
+            MAX_ATTEMPTS=3
+            ATTEMPT=1
+            while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+              echo "::group::Delete attempt $ATTEMPT/$MAX_ATTEMPTS (namespace $NS_ID)"
+              RESP=$(curl -sS -X DELETE "$BASE/$NS_ID" -H "$AUTH_HDR")
+              SUCCESS=$(echo "$RESP" | jq -r '.success // false')
+              echo "$RESP" | jq . || echo "$RESP"
+              echo "::endgroup::"
+              if [ "$SUCCESS" = "true" ]; then
+                echo "✅ ONLINE_COUNTER Durable Object namespace deleted successfully."
+                NS_ID=""
+                break
+              else
+                ERR=$(echo "$RESP" | jq -r '.errors[0].message // "unknown"')
+                CODE=$(echo "$RESP" | jq -r '.errors[0].code // "?"')
+                echo "::warning::Attempt $ATTEMPT failed [$CODE]: $ERR"
+                if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+                  echo "Sleeping 20s then retrying..."
+                  sleep 20
+                fi
+              fi
+              ATTEMPT=$((ATTEMPT+1))
+            done
+
+            if [ -n "$NS_ID" ]; then
+              echo "::error::Failed to delete ONLINE_COUNTER namespace after $MAX_ATTEMPTS attempts."
+              exit 1
+            fi
+          fi
+
+      # ────────────────────────────────────────────────────────────────
+      # STEP 3: Restore index.ts (remove stub), redeploy final Worker.
+      #         After namespace deletion, the DO class registry no longer
+      #         expects the export.
+      # ────────────────────────────────────────────────────────────────
+      - name: "Step 3a: Restore cf-server/index.ts (remove stub export)"
+        run: git checkout -- cf-server/index.ts
+
+      - name: "Step 3b: Deploy Worker WITHOUT OnlineCounterObject (final)"
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cf-server
+          command: deploy
+
+      - name: Summary
+        run: |
+          echo "✅ OnlineCounterObject fully removed from Cloudflare account:"
+          echo "   - Pages preview deployments (with ONLINE_COUNTER binding) deleted"
+          echo "   - ONLINE_COUNTER Durable Object namespace removed"
+          echo "   - phrolova-multiplayer Worker deployed WITHOUT OnlineCounterObject export"
+          echo " "
+          echo "You can now run pnpm deploy:production locally, or trigger normal Deploy workflow."
